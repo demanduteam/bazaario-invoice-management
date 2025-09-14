@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Invoice Management Analysis</title>
+    
+    <!-- Core Libraries First -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Tailwind: Config first, then the library -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        vazir: ['Vazirmatn', 'sans-serif'],
+                    },
+                },
+            },
+        }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel, which compiles the main script -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Vazirmatn', sans-serif;
+            background-color: #f3f4f6; /* bg-gray-100 */
+        }
+        .dark body {
+            background-color: #111827; /* dark:bg-gray-900 */
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .modal-content {
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: scale(0.95);
+            transition: transform 0.3s ease-in-out;
+        }
+        .modal-overlay.open .modal-content {
+            transform: scale(1);
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 2rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Toast Notification Styles */
+        .toast-container {
+            position: fixed;
+            top: 1.5rem;
+            left: 1.5rem;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .toast {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            animation: toast-in 0.5s ease;
+            min-width: 300px;
+        }
+        .toast.success { background-color: #10B981; color: white; } /* bg-green-500 */
+        .toast.error { background-color: #EF4444; color: white; } /* bg-red-500 */
+        .toast.warning { background-color: #f97316; } /* orange-500 */
+        @keyframes toast-in {
+            from { transform: translateX(-100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            .print-options {
+                display: none;
+            }
+            #printable-invoice, #printable-invoice * {
+                visibility: visible;
+            }
+            #printable-invoice {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="dark">
+    <div id="root"></div>
+
+    <!-- Main application script moved to the end of the body -->
+    <script type="text/babel">
+        // ==================================================
+        // Supabase Client Setup
+        // ==================================================
+        const { createClient } = supabase;
+        const supabaseUrl = 'https://wehyjatotbzxargnxasg.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndlaHlqYXRvdGJ6eGFyZ254YXNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE5MTIwMjEsImV4cCI6MjA2NzQ4ODAyMX0.2R448DuEBlTrNvaYXiYZ8D5M7MJNv7n1qmIDHQBNFiY';
+        const supabaseClient = createClient(supabaseUrl, supabaseKey, { global: { fetch: window.fetch.bind(window) } });
+
+        // ==================================================
+        // Application Configuration
+        // ==================================================
+        const APP_CONFIG = {
+            DEFAULT_SELLER_ID: 'f83dca6b-9bc3-4bc2-8ac0-609a4147269b', // Default seller for new invoices
+            DEFAULT_CURRENCY: 'Toman' // Can be 'Toman' or 'Rials'
+        };
+
+        // ==================================================
+        // Toast Notification System
+        // ==================================================
+        const ToastContext = React.createContext();
+
+        const ToastProvider = ({ children }) => {
+            const [toasts, setToasts] = React.useState([]);
+
+            const addToast = (message, type = 'success') => {
+                const id = Date.now();
+                setToasts(prev => [...prev, { id, message, type }]);
+                setTimeout(() => {
+                    removeToast(id);
+                }, 5000); // Remove after 5 seconds
+            };
+
+            const removeToast = (id) => {
+                setToasts(prev => prev.filter(toast => toast.id !== id));
+            };
+
+            return (
+                <ToastContext.Provider value={{ addToast }}>
+                    {children}
+                    <div className="toast-container">
+                        {toasts.map(toast => (
+                            <div key={toast.id} className={`toast ${toast.type}`}>
+                                {toast.message}
+                            </div>
+                        ))}
+                    </div>
+                </ToastContext.Provider>
+            );
+        };
+
+        const useToasts = () => {
+            return React.useContext(ToastContext);
+        };
+
+        // ==================================================
+        // Helper Functions & UI Components
+        // ==================================================
+        const formatCurrency = (value) => {
+            if (value === null || typeof value === 'undefined' || isNaN(value)) return '-';
+            return `${Number(value).toLocaleString('fa-IR')}`;
+        };
+        
+        const Modal = ({ isOpen, onClose, title, children, showHeader = true }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="modal-overlay open" onClick={onClose}>
+                    <div className="modal-content bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" onClick={e => e.stopPropagation()}>
+                        {showHeader && (
+                            <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-200 dark:border-gray-600">
+                                <h2 className="text-xl font-bold">{title}</h2>
+                                <button onClick={onClose} className="text-gray-400 hover:text-gray-800 dark:hover:text-white text-2xl">&times;</button>
+                            </div>
+                        )}
+                        {children}
+                    </div>
+                </div>
+            );
+        };
+
+        const PaymentAllocationModal = ({ isOpen, onClose, onSave, preInvoiceData }) => {
+            const [totalAmountReceived, setTotalAmountReceived] = React.useState(0);
+            const [allocations, setAllocations] = React.useState([]);
+            const [users, setUsers] = React.useState([]);
+            const [isSubmitting, setIsSubmitting] = React.useState(false);
+            const { addToast } = useToasts();
+
+            React.useEffect(() => {
+                if (preInvoiceData) {
+                    setTotalAmountReceived(preInvoiceData.totalAmount);
+                    // Pre-populate with suppliers from the order
+                    const initialAllocations = Object.values(preInvoiceData.suppliers).map(supplier => ({
+                        userId: supplier.id,
+                        amount: '',
+                        key: Math.random()
+                    }));
+                    setAllocations(initialAllocations);
+                }
+            }, [preInvoiceData]);
+
+            React.useEffect(() => {
+                const fetchUsers = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname, roleid')
+                        .in('roleid', [1, 2]); // Admin and Supplier roles
+                    if (error) {
+                        console.error("Error fetching users:", error);
+                        addToast('خطا در بارگذاری لیست کاربران', 'error');
+                    } else {
+                        setUsers(data);
+                    }
+                };
+                fetchUsers();
+            }, []);
+
+            const handleAllocationChange = (index, field, value) => {
+                const newAllocations = [...allocations];
+                newAllocations[index][field] = value;
+                setAllocations(newAllocations);
+            };
+
+            const addAllocationRow = () => {
+                setAllocations([...allocations, { userId: '', amount: '', key: Math.random() }]);
+            };
+
+            const removeAllocationRow = (index) => {
+                const newAllocations = allocations.filter((_, i) => i !== index);
+                setAllocations(newAllocations);
+            };
+            
+            const handleSave = async () => {
+                const totalAllocated = allocations.reduce((sum, alloc) => sum + (parseFloat(alloc.amount) || 0), 0);
+                if (totalAllocated > totalAmountReceived) {
+                    addToast('مبلغ تخصیص‌داده شده بیشتر از مبلغ دریافتی است!', 'warning');
+                    // Non-blocking as per requirement
+                }
+                
+                const finalAllocations = allocations.filter(a => a.userId && parseFloat(a.amount) > 0);
+                if (finalAllocations.length === 0) {
+                    addToast("لطفا حداقل یک تخصیص پرداخت معتبر وارد کنید.", 'error');
+                    return;
+                }
+
+                setIsSubmitting(true);
+                try {
+                    await onSave({
+                        totalAmountReceived,
+                        allocations: finalAllocations,
+                        preInvoiceData
+                    });
+                     // onSave will close the modal on success
+                } catch (error) {
+                    // Error is handled in the parent, modal remains open
+                } finally {
+                    setIsSubmitting(false);
+                }
+            };
+
+            if (!preInvoiceData) return null;
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title="ثبت و تخصیص پرداخت">
+                    <div className="space-y-6">
+                        <div>
+                            <label className="block font-semibold mb-2">مبلغ کل دریافت شده از مشتری</label>
+                            <input
+                                type="number"
+                                value={totalAmountReceived}
+                                onChange={e => setTotalAmountReceived(parseFloat(e.target.value) || 0)}
+                                className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center text-lg font-bold"
+                            />
+                        </div>
+
+                        <div className="border-t pt-4">
+                            <h3 className="font-semibold mb-3">تخصیص پرداخت به تامین‌کنندگان / کاربران</h3>
+                            <div className="space-y-3">
+                                {allocations.map((alloc, index) => (
+                                    <div key={alloc.key} className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-700/50 rounded-md">
+                                        <select
+                                            value={alloc.userId}
+                                            onChange={e => handleAllocationChange(index, 'userId', e.target.value)}
+                                            className="flex-grow bg-white dark:bg-gray-600 p-2 rounded-md"
+                                        >
+                                            <option value="">انتخاب کنید...</option>
+                                            {users.map(user => (
+                                                <option key={user.id} value={user.id}>{user.fullname} ({user.roleid === 1 ? 'ادمین' : 'تامین‌کننده'})</option>
+                                            ))}
+                                        </select>
+                                        <input
+                                            type="number"
+                                            placeholder="مبلغ"
+                                            value={alloc.amount}
+                                            onChange={e => handleAllocationChange(index, 'amount', e.target.value)}
+                                            className="w-40 bg-white dark:bg-gray-600 p-2 rounded-md text-center"
+                                        />
+                                        <button onClick={() => removeAllocationRow(index)} className="text-red-500 font-bold text-2xl">&times;</button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={addAllocationRow} className="mt-4 text-indigo-600 dark:text-indigo-400 font-semibold">+ افزودن پرداخت جدید</button>
+                        </div>
+
+                        <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg font-semibold">انصراف</button>
+                            <button onClick={handleSave} disabled={isSubmitting} className="bg-green-600 text-white py-2 px-5 rounded-lg font-semibold disabled:bg-green-400">
+                                {isSubmitting ? 'در حال ذخیره...' : 'ذخیره و ایجاد فاکتور'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+        
+        const EditInvoiceModal = ({ isOpen, onClose, onSave, invoice: initialInvoice, addToast }) => {
+            const [invoice, setInvoice] = React.useState(initialInvoice);
+            const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+            React.useEffect(() => {
+                setInvoice(initialInvoice);
+            }, [initialInvoice]);
+
+            if (!invoice) return null;
+
+            const recalculateTotal = (updatedInvoice) => {
+                const subtotal = updatedInvoice.demandinvoicedetail.reduce((sum, item) => sum + (item.quantity * item.sales_price), 0);
+                const discount = updatedInvoice.discount || 0;
+                const shipping = updatedInvoice.totalshippingprice || 0;
+                return subtotal - discount + shipping;
+            };
+
+            const handlePriceChange = (detailId, newPrice) => {
+                setInvoice(prev => {
+                    const updatedDetails = prev.demandinvoicedetail.map(detail => {
+                        if (detail.id === detailId) {
+                            return { ...detail, sales_price: parseFloat(newPrice) || 0 };
+                        }
+                        return detail;
+                    });
+                    const newInvoice = { ...prev, demandinvoicedetail: updatedDetails };
+                    const newTotalAmount = recalculateTotal(newInvoice);
+                    return { ...newInvoice, totalamount: newTotalAmount };
+                });
+            };
+
+            const handleInputChange = (field, value) => {
+                setInvoice(prev => {
+                    const newInvoice = { ...prev };
+                    if (field === 'note') {
+                        newInvoice.note = value;
+                    } else {
+                        newInvoice[field] = parseFloat(value) || 0;
+                    }
+                    const newTotalAmount = recalculateTotal(newInvoice);
+                    return { ...newInvoice, totalamount: newTotalAmount };
+                });
+            };
+
+            const handleSave = async () => {
+                setIsSubmitting(true);
+                try {
+                    const detailUpdates = invoice.demandinvoicedetail.map(detail => 
+                        supabaseClient
+                            .from('demandinvoicedetail')
+                            .update({ sales_price: detail.sales_price })
+                            .eq('id', detail.id)
+                    );
+                    const detailResults = await Promise.all(detailUpdates);
+                    const firstDetailError = detailResults.find(res => res.error);
+                    if (firstDetailError) throw firstDetailError.error;
+
+
+                    const { error: invoiceUpdateError } = await supabaseClient
+                        .from('demandinvoice')
+                        .update({ 
+                            totalamount: invoice.totalamount,
+                            discount: invoice.discount || 0,
+                            totalshippingprice: invoice.totalshippingprice || 0,
+                            note: invoice.note || ''
+                        })
+                        .eq('id', invoice.id);
+                    
+                    if (invoiceUpdateError) throw invoiceUpdateError;
+                    
+                    addToast('فاکتور با موفقیت به‌روزرسانی شد!', 'success');
+                    onSave();
+                } catch (err) {
+                    console.error("Error updating invoice:", err);
+                    addToast(`خطا در به‌روزرسانی فاکتور: ${err.message}`, 'error');
+                } finally {
+                    setIsSubmitting(false);
+                }
+            };
+
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title={`ویرایش فاکتور شماره ${invoice.id}`}>
+                    <div className="space-y-4">
+                        <table className="w-full text-right">
+                            <thead>
+                                <tr>
+                                    <th className="p-2">محصول</th>
+                                    <th className="p-2">تامین‌کننده</th>
+                                    <th className="p-2">تعداد</th>
+                                    <th className="p-2">قیمت فروش</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {invoice.demandinvoicedetail.map(detail => (
+                                    <tr key={detail.id}>
+                                        <td className="p-2">{detail.product?.title || 'نامشخص'}</td>
+                                        <td className="p-2">{detail.profiles?.fullname || 'نامشخص'}</td>
+                                        <td className="p-2">{detail.quantity}</td>
+                                        <td className="p-2">
+                                            <input
+                                                type="number"
+                                                value={detail.sales_price}
+                                                onChange={e => handlePriceChange(detail.id, e.target.value)}
+                                                className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center"
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">تخفیف (تومان)</label>
+                                <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={invoice.discount || ''}
+                                    onChange={e => handleInputChange('discount', e.target.value)}
+                                    className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">هزینه ارسال (تومان)</label>
+                                <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={invoice.totalshippingprice || ''}
+                                    onChange={e => handleInputChange('totalshippingprice', e.target.value)}
+                                    className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
+                                />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">یادداشت</label>
+                                <textarea
+                                    value={invoice.note || ''}
+                                    onChange={e => handleInputChange('note', e.target.value)}
+                                    rows="3"
+                                    placeholder="توضیحات مربوط به فاکتور..."
+                                    className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md"
+                                ></textarea>
+                            </div>
+                        </div>
+
+                        <div className="text-left font-bold text-lg mt-2">
+                            مبلغ کل جدید: {formatCurrency(invoice.totalamount)} تومان
+                        </div>
+                        <div className="flex justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg">انصراف</button>
+                            <button onClick={handleSave} disabled={isSubmitting} className="bg-indigo-600 text-white py-2 px-4 rounded-lg disabled:bg-indigo-400">
+                                {isSubmitting ? 'در حال ذخیره...' : 'ذخیره تغییرات'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const PrintableInvoice = ({ invoice, onClose }) => {
+            const [sellerProfile, setSellerProfile] = React.useState(null);
+            const [allSellers, setAllSellers] = React.useState([]);
+            const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
+            const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
+            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
+
+            // Effect to fetch all possible sellers for the dropdown
+            React.useEffect(() => {
+                const fetchAllSellers = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname')
+                        .eq('roleid', 1); // Filter for users with the 'admin' role
+                    if (error) {
+                        console.error('Error fetching admin sellers:', error);
+                    } else {
+                        setAllSellers(data || []);
+                    }
+                };
+                fetchAllSellers();
+            }, []);
+
+            // Effect to fetch the details of the currently selected seller
+            React.useEffect(() => {
+                if (!selectedSellerId) return;
+                const fetchSellerProfile = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque)')
+                        .eq('id', selectedSellerId)
+                        .single();
+                    if (error) {
+                        console.error('Error fetching seller profile:', error);
+                        setSellerProfile(null);
+                    } else {
+                        setSellerProfile(data);
+                    }
+                };
+                fetchSellerProfile();
+            }, [selectedSellerId]);
+
+            const handlePrint = () => {
+                window.print();
+            };
+            
+            // Formats currency based on the selected toggle (Toman/Rials)
+            const formatCurrencyForPrint = (value) => {
+                if (value === null || typeof value === 'undefined' || isNaN(value)) return '-';
+                const amount = currency === 'Rials' ? value * 10 : value;
+                const currencyName = currency === 'Rials' ? 'ریال' : 'تومان';
+                return `${Number(amount).toLocaleString('fa-IR')} ${currencyName}`;
+            };
+
+            const subtotal = invoice.demandinvoicedetail.reduce((sum, detail) => sum + (detail.quantity * detail.sales_price), 0);
+            
+            return (
+                <Modal isOpen={true} onClose={onClose} showHeader={false}>
+                    <div className="print-options p-4 bg-gray-100 dark:bg-gray-900 rounded-lg mb-4 flex flex-col md:flex-row gap-4 justify-between items-center">
+                        <div className="w-full md:w-1/2">
+                            <label htmlFor="seller-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">فروشنده:</label>
+                            <select
+                                id="seller-select"
+                                value={selectedSellerId}
+                                onChange={(e) => setSelectedSellerId(e.target.value)}
+                                className="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md"
+                            >
+                                {allSellers.map(seller => (
+                                    <option key={seller.id} value={seller.id}>{seller.fullname}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="w-full md:w-1/2">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">واحد پول:</label>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setCurrency('Toman')} className={`w-full px-4 py-2 rounded-md text-sm font-semibold ${currency === 'Toman' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-600'}`}>تومان</button>
+                                <button onClick={() => setCurrency('Rials')} className={`w-full px-4 py-2 rounded-md text-sm font-semibold ${currency === 'Rials' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-600'}`}>ریال</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="printable-invoice" className="bg-white text-black p-8 font-vazir">
+                        <header className="flex justify-between items-start pb-4 border-b">
+                            <div>
+                                <h1 className="text-2xl font-bold">فاکتور فروش</h1>
+                                <p>شماره: {invoice.id}</p>
+                                <p>تاریخ: {new Date(invoice.createdat).toLocaleDateString('fa-IR')}</p>
+                            </div>
+                            <div>
+                                <svg className="w-32 h-12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect x="0" y="0" width="2" height="30" fill="black"/><rect x="4" y="0" width="1" height="30" fill="black"/><rect x="7" y="0" width="3" height="30" fill="black"/><rect x="12" y="0" width="1" height="30" fill="black"/><rect x="15" y="0" width="2" height="30" fill="black"/><rect x="19" y="0" width="1" height="30" fill="black"/><rect x="22" y="0" width="3" height="30" fill="black"/><rect x="27" y="0" width="1" height="30" fill="black"/><rect x="30" y="0" width="2" height="30" fill="black"/><rect x="34" y="0" width="1" height="30" fill="black"/><rect x="37" y="0" width="3" height="30" fill="black"/><rect x="42" y="0" width="1" height="30" fill="black"/><rect x="45" y="0" width="2" height="30" fill="black"/><rect x="49" y="0" width="1" height="30" fill="black"/><rect x="52" y="0" width="3" height="30" fill="black"/><rect x="57" y="0" width="1" height="30" fill="black"/><rect x="60" y="0" width="2" height="30" fill="black"/></svg>
+                            </div>
+                        </header>
+
+                        <section className="grid grid-cols-2 gap-8 py-4 border-b text-sm">
+                            <div>
+                                <h2 className="font-bold mb-2">فروشنده</h2>
+                                <p><span className="font-semibold">نام:</span> {sellerProfile?.fullname || '...'}</p>
+                                <p><span className="font-semibold">کدملی/کد اقتصادی :</span> {sellerProfile?.national_id || '--'}</p>
+                                <p><span className="font-semibold">کدپستی:</span> {sellerProfile?.location?.postalcode || '--'}</p>
+                                <p><span className="font-semibold">شماره تماس:</span> {sellerProfile?.mobile || '--'}</p>
+                                <p><span className="font-semibold">آدرس:</span> {`${sellerProfile?.location?.address || '--'} ${sellerProfile?.location?.plaque ? `پلاک ${sellerProfile.location.plaque}` : ''}`.trim()}</p>
+                            </div>
+                            <div>
+                                <h2 className="font-bold mb-2">خریدار</h2>
+                                <p><span className="font-semibold">نام:</span> {invoice.customer?.fullname || 'نامشخص'}</p>
+                                <p><span className="font-semibold">کدملی:</span> {invoice.customer?.national_id || '--'}</p>
+                                <p><span className="font-semibold">کدپستی:</span> {invoice.customer?.location?.postalcode || '--'}</p>
+                                <p><span className="font-semibold">شماره تماس:</span> {invoice.customer?.mobile || '--'}</p>
+                                <p><span className="font-semibold">آدرس:</span> {`${invoice.customer?.location?.address || '--'} ${invoice.customer?.location?.plaque ? `پلاک ${invoice.customer.location.plaque}` : ''}`.trim()}</p>
+                            </div>
+                        </section>
+
+                        <section className="py-4">
+                            <table className="w-full text-right text-sm">
+                                <thead className="bg-gray-100">
+                                    <tr><th className="p-2 font-semibold">ش</th><th className="p-2 font-semibold">شناسه</th><th className="p-2 font-semibold">شرح</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">مبلغ واحد</th><th className="p-2 font-semibold">جمع</th></tr>
+                                </thead>
+                                <tbody>
+                                    {invoice.demandinvoicedetail.map((detail, index) => (
+                                        <tr key={detail.id} className="border-b">
+                                            <td className="p-2">{index + 1}</td>
+                                            <td className="p-2">{detail.demand_item_id}</td>
+                                            <td className="p-2">{detail.demand_item?.product?.title || 'محصول حذف شده'}</td>
+                                            <td className="p-2">{detail.quantity}</td>
+                                            <td className="p-2">{formatCurrencyForPrint(detail.sales_price)}</td>
+                                            <td className="p-2">{formatCurrencyForPrint(detail.quantity * detail.sales_price)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </section>
+
+                        <footer className="pt-4 border-t">
+                            {invoice.note && (
+                                <div className="mb-4">
+                                    <h3 className="font-bold">یادداشت:</h3>
+                                    <p className="text-sm">{invoice.note}</p>
+                                </div>
+                            )}
+                            <div className="flex justify-between items-end">
+                                <div>
+                                    <img src={stampImage} alt="مهر فروشگاه" className="w-32" />
+                                </div>
+                                <div className="text-left space-y-2 text-sm w-1/2 max-w-xs">
+                                    <div className="flex justify-between gap-4">
+                                        <span>جمع آیتم‌ها:</span>
+                                        <span>{formatCurrencyForPrint(subtotal)}</span>
+                                    </div>
+                                    {(invoice.discount > 0) && (
+                                        <div className="flex justify-between gap-4 text-red-600">
+                                            <span>تخفیف:</span>
+                                            <span>- {formatCurrencyForPrint(invoice.discount)}</span>
+                                        </div>
+                                    )}
+                                    {(invoice.totalshippingprice > 0) && (
+                                        <div className="flex justify-between gap-4">
+                                            <span>هزینه ارسال:</span>
+                                            <span>+ {formatCurrencyForPrint(invoice.totalshippingprice)}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between gap-4 font-bold text-base border-t pt-2 mt-2">
+                                        <span>جمع کل:</span>
+                                        <span>{formatCurrencyForPrint(invoice.totalamount)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </footer>
+                    </div>
+                    <div className="flex justify-end gap-4 mt-4 print-options">
+                        <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg">بستن</button>
+                        <button onClick={handlePrint} className="bg-indigo-600 text-white py-2 px-4 rounded-lg">چاپ</button>
+                    </div>
+                </Modal>
+            );
+        };
+
+        // ==================================================
+        // Invoice Management Component
+        // ==================================================
+        const InvoiceManagement = () => {
+            const [preInvoices, setPreInvoices] = React.useState({});
+            const [invoices, setInvoices] = React.useState([]);
+            const [isLoading, setIsLoading] = React.useState(true);
+            const [error, setError] = React.useState('');
+            const [isSubmitting, setIsSubmitting] = React.useState(null);
+            const [allocationModalState, setAllocationModalState] = React.useState({ isOpen: false, preInvoiceData: null });
+            const [activeTab, setActiveTab] = React.useState('pending');
+            const [editingInvoice, setEditingInvoice] = React.useState(null);
+            const [printingInvoice, setPrintingInvoice] = React.useState(null);
+            const { addToast } = useToasts();
+
+            const fetchData = async () => {
+                setIsLoading(true);
+                setError('');
+                try {
+                    const { data: pendingData, error: rpcError } = await supabaseClient.rpc('get_items_for_invoicing');
+                    if (rpcError) throw rpcError;
+
+                    const groupedByCustomer = (pendingData || []).reduce((acc, item) => {
+                        const customerId = item.customer_id;
+                        if (!customerId) return acc;
+
+                        if (!acc[customerId]) {
+                            acc[customerId] = {
+                                customerId: item.customer_id,
+                                customerName: item.customer_name || 'مشتری نامشخص',
+                                items: [],
+                                suppliers: {},
+                                totalAmount: 0
+                            };
+                        }
+                        
+                        const sale_price = item.sale_price || (item.approved_supply_price ? Math.round(item.approved_supply_price * 1.05) : 0);
+                        const subtotal = (item.approved_supply_quantity || 0) * sale_price;
+                        
+                        acc[customerId].items.push({ 
+                            id: item.item_id, 
+                            product: { title: item.product_name }, 
+                            approved_supply_quantity: item.approved_supply_quantity, 
+                            sale_price, 
+                            subtotal 
+                        });
+                        
+                        acc[customerId].totalAmount += subtotal;
+
+                        if (item.supplier_id && !acc[customerId].suppliers[item.supplier_id]) {
+                            acc[customerId].suppliers[item.supplier_id] = {
+                                id: item.supplier_id,
+                                name: item.supplier_name
+                            };
+                        }
+                        
+                        return acc;
+                    }, {});
+
+                    setPreInvoices(groupedByCustomer);
+
+                    const { data: historicalData, error: historicalError } = await supabaseClient
+                        .from('demandinvoice')
+                        .select(`
+                            *, 
+                            customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque)), 
+                            demandinvoicedetail(*, profiles:supplieruserid(fullname), demand_item:demand_item_id(product(title)), location:locationid(postalcode))
+                        `)
+                        .order('createdat', { ascending: false });
+                    if (historicalError) throw historicalError;
+                    setInvoices(historicalData || []);
+
+                } catch (err) {
+                    console.error("Error fetching invoice data:", err);
+                    setError(`خطا در بارگذاری اطلاعات: ${err.message}.`);
+                    addToast(`خطا در بارگذاری اطلاعات: ${err.message}`, 'error');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            React.useEffect(() => {
+                fetchData();
+            }, []);
+
+            const handlePriceChange = (customerId, itemId, newPrice) => {
+                setPreInvoices(prev => {
+                    const newInvoices = { ...prev };
+                    const invoice = { ...newInvoices[customerId] };
+                    let newTotalAmount = 0;
+                    invoice.items = invoice.items.map(item => {
+                        let currentItem = { ...item };
+                        if (item.id === itemId) {
+                            const price = parseFloat(newPrice) || 0;
+                            currentItem = { ...item, sale_price: price, subtotal: (item.approved_supply_quantity || 0) * price };
+                        }
+                        newTotalAmount += currentItem.subtotal;
+                        return currentItem;
+                    });
+                    invoice.totalAmount = newTotalAmount;
+                    newInvoices[customerId] = invoice;
+                    return newInvoices;
+                });
+            };
+
+            const handleInitiatePayment = (customerId) => {
+                setAllocationModalState({ isOpen: true, preInvoiceData: preInvoices[customerId] });
+            };
+
+            const handleSaveAllocationAndCreateInvoice = async ({ totalAmountReceived, allocations, preInvoiceData }) => {
+                const { customerId, items } = preInvoiceData;
+                setIsSubmitting(customerId);
+                try {
+                    // 1. Create Invoice Header
+                    const totalQuantity = items.reduce((sum, item) => sum + (item.approved_supply_quantity || 0), 0);
+                    const { data: invoiceHeader, error: headerError } = await supabaseClient
+                        .from('demandinvoice')
+                        .insert({ 
+                            customeruserid: customerId, 
+                            totalquantity: totalQuantity, 
+                            paymentstatusid: 1, // Assuming 1 is 'Paid'
+                            totalamount: totalAmountReceived 
+                        })
+                        .select()
+                        .single();
+                    if (headerError) throw headerError;
+                    
+                    // 2. Create Invoice Details
+                    const itemIds = items.map(item => item.id);
+                    const { data: allAssignments, error: assignmentError } = await supabaseClient
+                        .from('supplier_demand_assignment')
+                        .select('*')
+                        .in('demand_item_id', itemIds);
+                    if (assignmentError) throw assignmentError;
+
+                    const invoiceDetails = allAssignments.map(assignment => {
+                        const originalItem = items.find(item => item.id === assignment.demand_item_id);
+                        return { 
+                            demandinvoiceid: invoiceHeader.id, 
+                            demand_item_id: assignment.demand_item_id, 
+                            quantity: assignment.assigned_quantity, 
+                            sales_price: originalItem.sale_price, 
+                            supplieruserid: assignment.supplieruserid, 
+                            locationid: assignment.locationid 
+                        };
+                    });
+                    const { error: detailError } = await supabaseClient.from('demandinvoicedetail').insert(invoiceDetails);
+                    if (detailError) throw detailError;
+
+                    // 3. Create Payment Allocations in usertransaction table
+                    const transactions = [];
+                    // Customer payment transaction (income)
+                    transactions.push({
+                        userid: customerId,
+                        amount: totalAmountReceived,
+                        demandinvoiceid: invoiceHeader.id,
+                        transactiontypeid: 1 // Assuming 1 is 'Customer Payment'
+                    });
+                    // Supplier/Admin payout transactions (expense)
+                    allocations.forEach(alloc => {
+                        transactions.push({
+                            userid: alloc.userId,
+                            amount: -Math.abs(parseFloat(alloc.amount)), // Ensure it's a negative value for payouts
+                            demandinvoiceid: invoiceHeader.id,
+                            transactiontypeid: 2 // Assuming 2 is 'Supplier Payout'
+                        });
+                    });
+
+                    // **FIX**: Insert transactions one by one for robust error handling
+                    for (const transaction of transactions) {
+                        const { error: transactionError } = await supabaseClient.from('usertransaction').insert(transaction);
+                        if (transactionError) {
+                            throw new Error(`Failed to save transaction for user ${transaction.userid}: ${transactionError.message}`);
+                        }
+                    }
+
+                    // 4. Update Item Status
+                    const PAID_AWAITING_SHIPMENT_STATUS_ID = 19;
+                    const { error: updateError } = await supabaseClient
+                        .from('demand_item')
+                        .update({ demandstatusid: PAID_AWAITING_SHIPMENT_STATUS_ID })
+                        .in('id', itemIds);
+                    if(updateError) throw updateError;
+                    
+                    addToast('فاکتور و تخصیص پرداخت با موفقیت ثبت شد!', 'success');
+                    setAllocationModalState({ isOpen: false, preInvoiceData: null });
+                    fetchData(); // Refresh data
+                } catch (err) {
+                    console.error("Error creating invoice and allocations:", err);
+                    addToast(`خطا در ایجاد فاکتور: ${err.message}`, 'error');
+                    throw err; // re-throw to keep modal open on error
+                } finally {
+                    setIsSubmitting(null);
+                }
+            };
+            
+            const handleOpenEditModal = (invoice) => {
+                const enrichedDetails = invoice.demandinvoicedetail.map(detail => ({
+                    ...detail,
+                    product: { title: detail.demand_item?.product?.title || 'محصول حذف شده' }
+                }));
+                setEditingInvoice({ ...invoice, demandinvoicedetail: enrichedDetails });
+            };
+
+            const handleCloseEditModal = () => setEditingInvoice(null);
+            
+            const handleOpenPrintModal = (invoice) => setPrintingInvoice(invoice);
+            const handleClosePrintModal = () => setPrintingInvoice(null);
+
+            const handleSaveInvoice = () => {
+                fetchData();
+                handleCloseEditModal();
+            };
+
+            return (
+                <div className="p-4 sm:p-6 lg:p-8 text-gray-900 dark:text-gray-100">
+                    <h1 className="text-2xl md:text-3xl font-bold mb-6">مدیریت فاکتورها</h1>
+                    <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+                        <nav className="-mb-px flex space-x-4 space-x-reverse">
+                            <button onClick={() => setActiveTab('pending')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'pending' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>آماده صدور</button>
+                            <button onClick={() => setActiveTab('history')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه فاکتورها</button>
+                        </nav>
+                    </div>
+                    
+                    {isLoading && <div className="spinner"></div>}
+                    {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
+                    
+                    {!isLoading && !error && activeTab === 'pending' && (
+                        <div className="space-y-8">
+                            {Object.keys(preInvoices).length > 0 ? Object.entries(preInvoices).map(([customerId, invoiceData]) => (
+                                <div key={customerId} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+                                        <div><h2 className="text-xl font-bold">پیش‌فاکتور برای: <span className="font-mono">{invoiceData.customerName}</span></h2></div>
+                                        <div className="mt-4 sm:mt-0 text-left"><p className="text-sm text-gray-600 dark:text-gray-400">مبلغ کل:</p><p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(invoiceData.totalAmount)} تومان</p></div>
+                                    </div>
+                                    <table className="w-full text-right">
+                                        <thead><tr className="border-b dark:border-gray-700"><th className="p-2 font-semibold">محصول</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">قیمت فروش</th><th className="p-2 font-semibold">مبلغ کل</th></tr></thead>
+                                        <tbody>
+                                            {invoiceData.items.map(item => (
+                                                <tr key={item.id} className="border-b dark:border-gray-700 last:border-b-0">
+                                                    <td className="p-2">{item.product.title}</td>
+                                                    <td className="p-2">{item.approved_supply_quantity}</td>
+                                                    <td className="p-2"><input type="number" value={item.sale_price} onChange={e => handlePriceChange(customerId, item.id, e.target.value)} className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" /></td>
+                                                    <td className="p-2">{formatCurrency(item.subtotal)} تومان</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                                        <button onClick={() => handleInitiatePayment(customerId)} disabled={isSubmitting === customerId} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg disabled:bg-green-400">ثبت و تخصیص پرداخت</button>
+                                    </div>
+                                </div>
+                            )) : <p className="text-center p-12 bg-white dark:bg-gray-800 rounded-lg shadow">هیچ فاکتوری برای صدور وجود ندارد.</p>}
+                        </div>
+                    )}
+
+                    {!isLoading && !error && activeTab === 'history' && (
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow overflow-x-auto">
+                            <table className="w-full text-right">
+                                <thead><tr className="border-b dark:border-gray-700"><th className="p-3 font-semibold">شماره فاکتور</th><th className="p-3 font-semibold">مشتری</th><th className="p-3 font-semibold">تاریخ</th><th className="p-3 font-semibold">مبلغ کل</th><th className="p-3 font-semibold">عملیات</th></tr></thead>
+                                <tbody>
+                                    {invoices.map(invoice => (
+                                        <tr key={invoice.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                            <td className="p-3 font-mono">{invoice.id}</td>
+                                            <td className="p-3">{invoice.customer?.fullname || 'نامشخص'}</td>
+                                            <td className="p-3">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</td>
+                                            <td className="p-3 font-semibold">{formatCurrency(invoice.totalamount)} تومان</td>
+                                            <td className="p-3 space-x-4 space-x-reverse">
+                                                <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold">ویرایش</button>
+                                                <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold">چاپ</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                    
+                    {allocationModalState.isOpen && (
+                        <PaymentAllocationModal 
+                            isOpen={allocationModalState.isOpen} 
+                            onClose={() => setAllocationModalState({ isOpen: false, preInvoiceData: null })} 
+                            onSave={handleSaveAllocationAndCreateInvoice}
+                            preInvoiceData={allocationModalState.preInvoiceData}
+                        />
+                    )}
+                    {editingInvoice && <EditInvoiceModal isOpen={!!editingInvoice} onClose={handleCloseEditModal} onSave={handleSaveInvoice} invoice={editingInvoice} addToast={addToast} />}
+                    {printingInvoice && <PrintableInvoice invoice={printingInvoice} onClose={handleClosePrintModal} />}
+                </div>
+            );
+        };
+        
+        // App component to provide Toast context
+        const App = () => (
+            <ToastProvider>
+                <InvoiceManagement />
+            </ToastProvider>
+        );
+
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
