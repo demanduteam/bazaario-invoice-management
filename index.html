@@ -189,6 +189,23 @@
             if (value === null || typeof value === 'undefined' || isNaN(value)) return '-';
             return `${Number(value).toLocaleString('fa-IR')}`;
         };
+
+        const formatNumberWithCommas = (value) => {
+            if (value === null || value === undefined || value === '' || isNaN(Number(value))) {
+                return '';
+            }
+            const stringValue = String(value).replace(/,/g, '');
+            const numberValue = Number(stringValue);
+            if (isNaN(numberValue)) return '';
+            return numberValue.toLocaleString('en-US');
+        };
+
+        const parseFormattedNumber = (value) => {
+            if (typeof value !== 'string') {
+                return 0;
+            }
+            return Number(value.replace(/,/g, '')) || 0;
+        };
         
         const Modal = ({ isOpen, onClose, title, children, showHeader = true }) => {
             if (!isOpen) return null;
@@ -245,7 +262,11 @@
 
             const handleAllocationChange = (index, field, value) => {
                 const newAllocations = [...allocations];
-                newAllocations[index][field] = value;
+                if (field === 'amount') {
+                    newAllocations[index][field] = parseFormattedNumber(value);
+                } else {
+                    newAllocations[index][field] = value;
+                }
                 setAllocations(newAllocations);
             };
 
@@ -259,13 +280,12 @@
             };
             
             const handleSave = async () => {
-                const totalAllocated = allocations.reduce((sum, alloc) => sum + (parseFloat(alloc.amount) || 0), 0);
+                const totalAllocated = allocations.reduce((sum, alloc) => sum + (alloc.amount || 0), 0);
                 if (totalAllocated > totalAmountReceived) {
                     addToast('مبلغ تخصیص‌داده شده بیشتر از مبلغ دریافتی است!', 'warning');
-                    // Non-blocking as per requirement
                 }
                 
-                const finalAllocations = allocations.filter(a => a.userId && parseFloat(a.amount) > 0);
+                const finalAllocations = allocations.filter(a => a.userId && a.amount > 0);
                 if (finalAllocations.length === 0) {
                     addToast("لطفا حداقل یک تخصیص پرداخت معتبر وارد کنید.", 'error');
                     return;
@@ -278,9 +298,7 @@
                         allocations: finalAllocations,
                         preInvoiceData
                     });
-                     // onSave will close the modal on success
                 } catch (error) {
-                    // Error is handled in the parent, modal remains open
                 } finally {
                     setIsSubmitting(false);
                 }
@@ -294,9 +312,9 @@
                         <div>
                             <label className="block font-semibold mb-2">مبلغ کل دریافت شده از مشتری</label>
                             <input
-                                type="number"
-                                value={totalAmountReceived}
-                                onChange={e => setTotalAmountReceived(parseFloat(e.target.value) || 0)}
+                                type="text"
+                                value={formatNumberWithCommas(totalAmountReceived)}
+                                onChange={e => setTotalAmountReceived(parseFormattedNumber(e.target.value))}
                                 className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center text-lg font-bold"
                             />
                         </div>
@@ -317,9 +335,9 @@
                                             ))}
                                         </select>
                                         <input
-                                            type="number"
+                                            type="text"
                                             placeholder="مبلغ"
-                                            value={alloc.amount}
+                                            value={formatNumberWithCommas(alloc.amount)}
                                             onChange={e => handleAllocationChange(index, 'amount', e.target.value)}
                                             className="w-40 bg-white dark:bg-gray-600 p-2 rounded-md text-center"
                                         />
@@ -362,7 +380,7 @@
                 setInvoice(prev => {
                     const updatedDetails = prev.demandinvoicedetail.map(detail => {
                         if (detail.id === detailId) {
-                            return { ...detail, sales_price: parseFloat(newPrice) || 0 };
+                            return { ...detail, sales_price: parseFormattedNumber(newPrice) };
                         }
                         return detail;
                     });
@@ -378,7 +396,7 @@
                     if (field === 'note') {
                         newInvoice.note = value;
                     } else {
-                        newInvoice[field] = parseFloat(value) || 0;
+                        newInvoice[field] = parseFormattedNumber(value);
                     }
                     const newTotalAmount = recalculateTotal(newInvoice);
                     return { ...newInvoice, totalamount: newTotalAmount };
@@ -441,8 +459,8 @@
                                         <td className="p-2">{detail.quantity}</td>
                                         <td className="p-2">
                                             <input
-                                                type="number"
-                                                value={detail.sales_price}
+                                                type="text"
+                                                value={formatNumberWithCommas(detail.sales_price)}
                                                 onChange={e => handlePriceChange(detail.id, e.target.value)}
                                                 className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center"
                                             />
@@ -456,9 +474,9 @@
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">تخفیف (تومان)</label>
                                 <input
-                                    type="number"
+                                    type="text"
                                     placeholder="0"
-                                    value={invoice.discount || ''}
+                                    value={formatNumberWithCommas(invoice.discount)}
                                     onChange={e => handleInputChange('discount', e.target.value)}
                                     className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
                                 />
@@ -466,9 +484,9 @@
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">هزینه ارسال (تومان)</label>
                                 <input
-                                    type="number"
+                                    type="text"
                                     placeholder="0"
-                                    value={invoice.totalshippingprice || ''}
+                                    value={formatNumberWithCommas(invoice.totalshippingprice)}
                                     onChange={e => handleInputChange('totalshippingprice', e.target.value)}
                                     className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
                                 />
@@ -505,7 +523,7 @@
             const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
             const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
             const [customerProfile, setCustomerProfile] = React.useState(null);
-            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
+            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
 
             React.useEffect(() => {
                 const fetchAllSellers = async () => {
@@ -659,7 +677,7 @@
             const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
             const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
             const [customerProfile, setCustomerProfile] = React.useState(null); // State for fresh customer data
-            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
+            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
 
             // Effect to fetch all possible sellers for the dropdown
             React.useEffect(() => {
@@ -872,46 +890,56 @@
                     const { data: pendingData, error: rpcError } = await supabaseClient.rpc('get_items_for_invoicing');
                     if (rpcError) throw rpcError;
 
-                    const groupedByCustomer = (pendingData || []).reduce((acc, item) => {
-                        const customerId = item.customer_id;
+                    // REWRITTEN & MORE ROBUST DATA GROUPING LOGIC
+                    const groupedByCustomer = (pendingData || []).reduce((acc, rpcRow) => {
+                        const customerId = rpcRow.customer_id;
                         if (!customerId) return acc;
 
+                        // Ensure a customer entry exists in the accumulator
                         if (!acc[customerId]) {
                             acc[customerId] = {
-                                customerId: item.customer_id,
-                                customerName: item.customer_name || 'مشتری نامشخص',
-                                items: [],
+                                customerId: rpcRow.customer_id,
+                                customerName: rpcRow.customer_name || 'مشتری نامشخص',
+                                items: {}, // Use an object/map for items to guarantee uniqueness by key
                                 suppliers: {},
                                 totalAmount: 0
                             };
                         }
-                        
-                        const existingItem = acc[customerId].items.find(i => i.id === item.item_id);
 
-                        if (!existingItem) {
-                            const sale_price = item.sale_price || (item.approved_supply_price ? Math.round(item.approved_supply_price * 1.05) : 0);
-                            const subtotal = (item.approved_supply_quantity || 0) * sale_price;
-                            
-                            acc[customerId].items.push({ 
-                                id: item.item_id, 
-                                product: { title: item.product_name }, 
-                                approved_supply_quantity: item.approved_supply_quantity, 
-                                sale_price, 
-                                subtotal 
-                            });
-                            
+                        // Process the item - only add it if it's not already in our map
+                        const itemId = rpcRow.item_id;
+                        if (!acc[customerId].items[itemId]) {
+                            const sale_price = rpcRow.sale_price || (rpcRow.approved_supply_price ? Math.round(rpcRow.approved_supply_price * 1.05) : 0);
+                            const subtotal = (rpcRow.approved_supply_quantity || 0) * sale_price;
+
+                            acc[customerId].items[itemId] = {
+                                id: itemId,
+                                product: { title: rpcRow.product_name },
+                                approved_supply_quantity: rpcRow.approved_supply_quantity,
+                                sale_price,
+                                subtotal
+                            };
+
                             acc[customerId].totalAmount += subtotal;
                         }
 
-                        if (item.supplier_id && !acc[customerId].suppliers[item.supplier_id]) {
-                            acc[customerId].suppliers[item.supplier_id] = {
-                                id: item.supplier_id,
-                                name: item.supplier_name
+                        // Process the supplier - always add if new
+                        const supplierId = rpcRow.supplier_id;
+                        if (supplierId && !acc[customerId].suppliers[supplierId]) {
+                            acc[customerId].suppliers[supplierId] = {
+                                id: supplierId,
+                                name: rpcRow.supplier_name
                             };
                         }
-                        
+
                         return acc;
                     }, {});
+
+                    // After reducing, convert the items map back to an array for each customer, which the rest of the app expects
+                    Object.keys(groupedByCustomer).forEach(customerId => {
+                        groupedByCustomer[customerId].items = Object.values(groupedByCustomer[customerId].items);
+                    });
+
 
                     setPreInvoices(groupedByCustomer);
 
@@ -947,7 +975,7 @@
                     invoice.items = invoice.items.map(item => {
                         let currentItem = { ...item };
                         if (item.id === itemId) {
-                            const price = parseFloat(newPrice) || 0;
+                            const price = parseFormattedNumber(newPrice);
                             currentItem = { ...item, sale_price: price, subtotal: (item.approved_supply_quantity || 0) * price };
                         }
                         newTotalAmount += currentItem.subtotal;
@@ -981,48 +1009,48 @@
                         .single();
                     if (headerError) throw headerError;
                     
-                    // 2. Create Invoice Details
-                    const itemIds = items.map(item => item.id);
+                    // 2. Create Invoice Details - FAIL-SAFE DE-DUPLICATION
+                    const uniqueItems = Array.from(new Map(items.map(item => [item.id, item])).values());
+                    
+                    const itemIds = uniqueItems.map(item => item.id);
+
                     const { data: allAssignments, error: assignmentError } = await supabaseClient
                         .from('supplier_demand_assignment')
-                        .select('*')
+                        .select('demand_item_id, supplieruserid')
                         .in('demand_item_id', itemIds);
                     if (assignmentError) throw assignmentError;
 
-                    const invoiceDetails = allAssignments.map(assignment => {
-                        const originalItem = items.find(item => item.id === assignment.demand_item_id);
+                    const invoiceDetails = uniqueItems.map(item => {
+                        const assignment = allAssignments.find(a => a.demand_item_id === item.id);
                         return { 
                             demandinvoiceid: invoiceHeader.id, 
-                            demand_item_id: assignment.demand_item_id, 
-                            quantity: assignment.assigned_quantity, 
-                            sales_price: originalItem.sale_price, 
-                            supplieruserid: assignment.supplieruserid, 
-                            locationid: assignment.locationid 
+                            demand_item_id: item.id, 
+                            quantity: item.approved_supply_quantity,
+                            sales_price: item.sale_price,
+                            supplieruserid: assignment ? assignment.supplieruserid : null
                         };
                     });
+
                     const { error: detailError } = await supabaseClient.from('demandinvoicedetail').insert(invoiceDetails);
                     if (detailError) throw detailError;
 
                     // 3. Create Payment Allocations in usertransaction table
                     const transactions = [];
-                    // Customer payment transaction (income)
                     transactions.push({
                         userid: customerId,
                         amount: totalAmountReceived,
                         demandinvoiceid: invoiceHeader.id,
                         transactiontypeid: 1 // Assuming 1 is 'Customer Payment'
                     });
-                    // Supplier/Admin payout transactions (expense)
                     allocations.forEach(alloc => {
                         transactions.push({
                             userid: alloc.userId,
-                            amount: -Math.abs(parseFloat(alloc.amount)), // Ensure it's a negative value for payouts
+                            amount: -Math.abs(alloc.amount),
                             demandinvoiceid: invoiceHeader.id,
                             transactiontypeid: 2 // Assuming 2 is 'Supplier Payout'
                         });
                     });
 
-                    // **FIX**: Insert transactions one by one for robust error handling
                     for (const transaction of transactions) {
                         const { error: transactionError } = await supabaseClient.from('usertransaction').insert(transaction);
                         if (transactionError) {
@@ -1044,7 +1072,7 @@
                 } catch (err) {
                     console.error("Error creating invoice and allocations:", err);
                     addToast(`خطا در ایجاد فاکتور: ${err.message}`, 'error');
-                    throw err; // re-throw to keep modal open on error
+                    throw err;
                 } finally {
                     setIsSubmitting(null);
                 }
@@ -1098,7 +1126,7 @@
                                                 <tr key={item.id} className="border-b dark:border-gray-700 last:border-b-0">
                                                     <td className="p-2">{item.product.title}</td>
                                                     <td className="p-2">{item.approved_supply_quantity}</td>
-                                                    <td className="p-2"><input type="number" value={item.sale_price} onChange={e => handlePriceChange(customerId, item.id, e.target.value)} className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" /></td>
+                                                    <td className="p-2"><input type="text" value={formatNumberWithCommas(item.sale_price)} onChange={e => handlePriceChange(customerId, item.id, e.target.value)} className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" /></td>
                                                     <td className="p-2">{formatCurrency(item.subtotal)} تومان</td>
                                                 </tr>
                                             ))}
