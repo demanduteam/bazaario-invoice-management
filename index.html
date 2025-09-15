@@ -498,13 +498,168 @@
                 </Modal>
             );
         };
-        const PrintableInvoice = ({ invoice, onClose }) => {
-            const [sellerProfile, setSellerProfile] = React.useState(null);
-            const [allSellers, setAllSellers] = React.useState([]);
-            const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
-            const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
-            const [customerProfile, setCustomerProfile] = React.useState(null); // State for fresh customer data
-            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
+
+        const PrintablePreInvoice = ({ preInvoiceData, onClose }) => {
+            const [sellerProfile, setSellerProfile] = React.useState(null);
+            const [allSellers, setAllSellers] = React.useState([]);
+            const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
+            const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
+            const [customerProfile, setCustomerProfile] = React.useState(null);
+            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
+
+            React.useEffect(() => {
+                const fetchAllSellers = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname')
+                        .eq('roleid', 1);
+                    if (error) console.error('Error fetching admin sellers:', error);
+                    else setAllSellers(data || []);
+                };
+                fetchAllSellers();
+            }, []);
+
+            React.useEffect(() => {
+                if (!selectedSellerId) return;
+                const fetchSellerProfile = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque)')
+                        .eq('id', selectedSellerId)
+                        .single();
+                    if (error) {
+                        console.error('Error fetching seller profile:', error);
+                        setSellerProfile(null);
+                    } else {
+                        setSellerProfile(data);
+                    }
+                };
+                fetchSellerProfile();
+            }, [selectedSellerId]);
+
+            React.useEffect(() => {
+                if (!preInvoiceData?.customerId) return;
+                const fetchCustomerProfile = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque)')
+                        .eq('id', preInvoiceData.customerId)
+                        .single();
+                    if (error) {
+                        console.error('Error fetching customer profile for pre-invoice:', error);
+                        setCustomerProfile({ fullname: preInvoiceData.customerName });
+                    } else {
+                        setCustomerProfile(data);
+                    }
+                };
+                fetchCustomerProfile();
+            }, [preInvoiceData]);
+
+
+            const handlePrint = () => window.print();
+
+            const formatCurrencyForPrint = (value) => {
+                if (value === null || typeof value === 'undefined' || isNaN(value)) return '-';
+                const amount = currency === 'Rials' ? value * 10 : value;
+                const currencyName = currency === 'Rials' ? 'ریال' : 'تومان';
+                return `${Number(amount).toLocaleString('fa-IR')} ${currencyName}`;
+            };
+
+            const subtotal = preInvoiceData.items.reduce((sum, item) => sum + item.subtotal, 0);
+
+            return (
+                <Modal isOpen={true} onClose={onClose} showHeader={false}>
+                    <div className="print-options p-4 bg-gray-100 dark:bg-gray-900 rounded-lg mb-4 flex flex-col md:flex-row gap-4 justify-between items-center">
+                        <div className="w-full md:w-1/2">
+                            <label htmlFor="seller-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">فروشنده:</label>
+                            <select id="seller-select" value={selectedSellerId} onChange={(e) => setSelectedSellerId(e.target.value)} className="w-full p-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md">
+                                {allSellers.map(seller => (<option key={seller.id} value={seller.id}>{seller.fullname}</option>))}
+                            </select>
+                        </div>
+                        <div className="w-full md:w-1/2">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">واحد پول:</label>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setCurrency('Toman')} className={`w-full px-4 py-2 rounded-md text-sm font-semibold ${currency === 'Toman' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-600'}`}>تومان</button>
+                                <button onClick={() => setCurrency('Rials')} className={`w-full px-4 py-2 rounded-md text-sm font-semibold ${currency === 'Rials' ? 'bg-indigo-600 text-white' : 'bg-gray-200 dark:bg-gray-600'}`}>ریال</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="printable-invoice" className="bg-white text-black p-8 font-vazir">
+                        <header className="flex justify-between items-start pb-4 border-b">
+                            <div>
+                                <h1 className="text-2xl font-bold">پیش فاکتور</h1>
+                                <p>تاریخ: {new Date().toLocaleDateString('fa-IR')}</p>
+                            </div>
+                            <div>
+                                <svg className="w-32 h-12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect x="0" y="0" width="2" height="30" fill="black"/><rect x="4" y="0" width="1" height="30" fill="black"/><rect x="7" y="0" width="3" height="30" fill="black"/><rect x="12" y="0" width="1" height="30" fill="black"/><rect x="15" y="0" width="2" height="30" fill="black"/><rect x="19" y="0" width="1" height="30" fill="black"/><rect x="22" y="0" width="3" height="30" fill="black"/><rect x="27" y="0" width="1" height="30" fill="black"/><rect x="30" y="0" width="2" height="30" fill="black"/><rect x="34" y="0" width="1" height="30" fill="black"/><rect x="37" y="0" width="3" height="30" fill="black"/><rect x="42" y="0" width="1" height="30" fill="black"/><rect x="45" y="0" width="2" height="30" fill="black"/><rect x="49" y="0" width="1" height="30" fill="black"/><rect x="52" y="0" width="3" height="30" fill="black"/><rect x="57" y="0" width="1" height="30" fill="black"/><rect x="60" y="0" width="2" height="30" fill="black"/></svg>
+                            </div>
+                        </header>
+                        <section className="grid grid-cols-2 gap-8 py-4 border-b text-sm">
+                             <div>
+                                <h2 className="font-bold mb-2">فروشنده</h2>
+                                <p><span className="font-semibold">نام:</span> {sellerProfile?.fullname || '...'}</p>
+                                <p><span className="font-semibold">کدملی/کد اقتصادی :</span> {sellerProfile?.national_id || '--'}</p>
+                                <p><span className="font-semibold">کدپستی:</span> {sellerProfile?.location?.postalcode || '--'}</p>
+                                <p><span className="font-semibold">شماره تماس:</span> {sellerProfile?.mobile || '--'}</p>
+                                <p><span className="font-semibold">آدرس:</span> {`${sellerProfile?.location?.address || '--'} ${sellerProfile?.location?.plaque ? `پلاک ${sellerProfile.location.plaque}` : ''}`.trim()}</p>
+                            </div>
+                            <div>
+                                <h2 className="font-bold mb-2">خریدار</h2>
+                                <p><span className="font-semibold">نام:</span> {customerProfile?.fullname || '...'}</p>
+                                <p><span className="font-semibold">کدملی:</span> {customerProfile?.national_id || '--'}</p>
+                                <p><span className="font-semibold">کدپستی:</span> {customerProfile?.location?.postalcode || '--'}</p>
+                                <p><span className="font-semibold">شماره تماس:</span> {customerProfile?.mobile || '--'}</p>
+                                <p><span className="font-semibold">آدرس:</span> {`${customerProfile?.location?.address || '--'} ${customerProfile?.location?.plaque ? `پلاک ${customerProfile.location.plaque}` : ''}`.trim()}</p>
+                            </div>
+                        </section>
+                        <section className="py-4">
+                            <table className="w-full text-right text-sm">
+                                <thead className="bg-gray-100">
+                                    <tr><th className="p-2 font-semibold">ش</th><th className="p-2 font-semibold">شناسه</th><th className="p-2 font-semibold">شرح</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">مبلغ واحد</th><th className="p-2 font-semibold">جمع</th></tr>
+                                </thead>
+                                <tbody>
+                                    {preInvoiceData.items.map((item, index) => (
+                                        <tr key={item.id} className="border-b">
+                                            <td className="p-2">{index + 1}</td>
+                                            <td className="p-2">{item.id}</td>
+                                            <td className="p-2">{item.product.title}</td>
+                                            <td className="p-2">{item.approved_supply_quantity}</td>
+                                            <td className="p-2">{formatCurrencyForPrint(item.sale_price)}</td>
+                                            <td className="p-2">{formatCurrencyForPrint(item.subtotal)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </section>
+                        <footer className="pt-4 border-t">
+                            <div className="flex justify-between items-end">
+                                <div>
+                                    <img src={stampImage} alt="مهر فروشگاه" className="w-32" />
+                                </div>
+                                <div className="text-left space-y-2 text-sm w-1/2 max-w-xs">
+                                    <div className="flex justify-between gap-4 font-bold text-base border-t pt-2 mt-2">
+                                        <span>جمع کل:</span>
+                                        <span>{formatCurrencyForPrint(preInvoiceData.totalAmount)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </footer>
+                    </div>
+                    <div className="flex justify-end gap-4 mt-4 print-options">
+                        <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg">بستن</button>
+                        <button onClick={handlePrint} className="bg-indigo-600 text-white py-2 px-4 rounded-lg">چاپ</button>
+                    </div>
+                </Modal>
+            );
+        };
+
+        const PrintableInvoice = ({ invoice, onClose }) => {
+            const [sellerProfile, setSellerProfile] = React.useState(null);
+            const [allSellers, setAllSellers] = React.useState([]);
+            const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
+            const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
+            const [customerProfile, setCustomerProfile] = React.useState(null); // State for fresh customer data
+            const stampImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAAEGCAYAAABz23x8AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAv6SURBVHhe7d17bBzXfcDxH8xG27a2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu2bdu-AAAAAElFTkSuQmCC";
 
             // Effect to fetch all possible sellers for the dropdown
             React.useEffect(() => {
@@ -707,6 +862,7 @@
             const [activeTab, setActiveTab] = React.useState('pending');
             const [editingInvoice, setEditingInvoice] = React.useState(null);
             const [printingInvoice, setPrintingInvoice] = React.useState(null);
+            const [printingPreInvoice, setPrintingPreInvoice] = React.useState(null);
             const { addToast } = useToasts();
 
             const fetchData = async () => {
@@ -730,10 +886,8 @@
                             };
                         }
                         
-                        // FIX: Check if the item already exists to avoid duplication
                         const existingItem = acc[customerId].items.find(i => i.id === item.item_id);
 
-                        // Only add the item and its value to the totals if it's the first time we've seen it
                         if (!existingItem) {
                             const sale_price = item.sale_price || (item.approved_supply_price ? Math.round(item.approved_supply_price * 1.05) : 0);
                             const subtotal = (item.approved_supply_quantity || 0) * sale_price;
@@ -749,7 +903,6 @@
                             acc[customerId].totalAmount += subtotal;
                         }
 
-                        // This part runs for every row to collect all unique suppliers for the customer
                         if (item.supplier_id && !acc[customerId].suppliers[item.supplier_id]) {
                             acc[customerId].suppliers[item.supplier_id] = {
                                 id: item.supplier_id,
@@ -909,6 +1062,8 @@
             
             const handleOpenPrintModal = (invoice) => setPrintingInvoice(invoice);
             const handleClosePrintModal = () => setPrintingInvoice(null);
+            const handleOpenPrintPreInvoiceModal = (data) => setPrintingPreInvoice(data);
+            const handleClosePrintPreInvoiceModal = () => setPrintingPreInvoice(null);
 
             const handleSaveInvoice = () => {
                 fetchData();
@@ -949,7 +1104,8 @@
                                             ))}
                                         </tbody>
                                     </table>
-                                    <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                                    <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+                                        <button onClick={() => handleOpenPrintPreInvoiceModal(invoiceData)} className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-5 rounded-lg">چاپ پیش‌فاکتور</button>
                                         <button onClick={() => handleInitiatePayment(customerId)} disabled={isSubmitting === customerId} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg disabled:bg-green-400">ثبت و تخصیص پرداخت</button>
                                     </div>
                                 </div>
@@ -989,6 +1145,7 @@
                     )}
                     {editingInvoice && <EditInvoiceModal isOpen={!!editingInvoice} onClose={handleCloseEditModal} onSave={handleSaveInvoice} invoice={editingInvoice} addToast={addToast} />}
                     {printingInvoice && <PrintableInvoice invoice={printingInvoice} onClose={handleClosePrintModal} />}
+                    {printingPreInvoice && <PrintablePreInvoice preInvoiceData={printingPreInvoice} onClose={handleClosePrintPreInvoiceModal} />}
                 </div>
             );
         };
@@ -1007,5 +1164,4 @@
     </script>
 </body>
 </html>
-
 
