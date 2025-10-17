@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF--8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Invoice Management Analysis</title>
     
@@ -191,12 +191,18 @@
         };
 
         const formatNumberWithCommas = (value) => {
-            if (value === null || value === undefined || value === '' || isNaN(Number(value))) {
+            if (value === null || value === undefined || value === '') {
                 return '';
             }
+            // First, remove any existing commas to parse the number correctly.
             const stringValue = String(value).replace(/,/g, '');
             const numberValue = Number(stringValue);
-            if (isNaN(numberValue)) return '';
+            
+            // If it's not a number after removing commas, it's invalid input.
+            if (isNaN(numberValue)) {
+                return '';
+            }
+            // Format the valid number with commas.
             return numberValue.toLocaleString('en-US');
         };
 
@@ -330,8 +336,11 @@
             };
 
             // Filter users based on search term
-            const filteredUsers = users.filter(user => 
-                user.fullname.toLowerCase().includes(searchTerm.toLowerCase())
+            const filteredUsers = React.useMemo(() => 
+                users.filter(user => 
+                    user.fullname.toLowerCase().includes(searchTerm.toLowerCase())
+                ), 
+                [users, searchTerm]
             );
 
             if (!preInvoiceData) return null;
@@ -581,6 +590,111 @@
             );
         };
 
+        // ==================================================
+        // REFACTORED: Generic Printable Layout Component
+        // This component centralizes the UI for both pre-invoices and historical invoices
+        // to avoid code duplication and simplify future style changes.
+        // ==================================================
+        const PrintableInvoiceLayout = ({
+            title,
+            invoiceNumber,
+            invoiceDate,
+            sellerProfile,
+            customerProfile,
+            items,
+            subtotal,
+            discount,
+            shipping,
+            totalAmount,
+            note,
+            formatCurrencyForPrint
+        }) => {
+            return (
+                <div id="printable-invoice" className="bg-white text-black p-4 md:p-8 font-vazir">
+                    <header className="flex justify-between items-start pb-4 border-b">
+                        <div>
+                            <h1 className="text-xl md:text-2xl font-bold">{title}</h1>
+                            {invoiceNumber && <p className="text-sm">شماره: {invoiceNumber}</p>}
+                            <p className="text-sm">تاریخ: {invoiceDate}</p>
+                        </div>
+                        <div>
+                            <svg className="w-24 h-10 md:w-32 md:h-12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect x="0" y="0" width="2" height="30" fill="black"/><rect x="4" y="0" width="1" height="30" fill="black"/><rect x="7" y="0" width="3" height="30" fill="black"/><rect x="12" y="0" width="1" height="30" fill="black"/><rect x="15" y="0" width="2" height="30" fill="black"/><rect x="19" y="0" width="1" height="30" fill="black"/><rect x="22" y="0" width="3" height="30" fill="black"/><rect x="27" y="0" width="1" height="30" fill="black"/><rect x="30" y="0" width="2" height="30" fill="black"/><rect x="34" y="0" width="1" height="30" fill="black"/><rect x="37" y="0" width="3" height="30" fill="black"/><rect x="42" y="0" width="1" height="30" fill="black"/><rect x="45" y="0" width="2" height="30" fill="black"/><rect x="49" y="0" width="1" height="30" fill="black"/><rect x="52" y="0" width="3" height="30" fill="black"/><rect x="57" y="0" width="1" height="30" fill="black"/><rect x="60" y="0" width="2" height="30" fill="black"/></svg>
+                        </div>
+                    </header>
+                    <section className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 py-4 border-b text-xs md:text-sm">
+                        <div>
+                            <h2 className="font-bold mb-2">فروشنده</h2>
+                            <p><span className="font-semibold">نام:</span> {sellerProfile?.fullname || '...'}</p>
+                            <p><span className="font-semibold">کدملی/کد اقتصادی :</span> {sellerProfile?.national_id || '--'}</p>
+                            <p><span className="font-semibold">کدپستی:</span> {sellerProfile?.location?.postalcode || '--'}</p>
+                            <p><span className="font-semibold">شماره تماس:</span> {sellerProfile?.mobile || '--'}</p>
+                            <p><span className="font-semibold">آدرس:</span> {`${sellerProfile?.location?.address || '--'} ${sellerProfile?.location?.plaque ? `پلاک ${sellerProfile.location.plaque}` : ''}`.trim()}</p>
+                        </div>
+                        <div>
+                            <h2 className="font-bold mb-2">خریدار</h2>
+                            <p><span className="font-semibold">نام:</span> {customerProfile?.fullname || '...'}</p>
+                            <p><span className="font-semibold">کدملی:</span> {customerProfile?.national_id || '--'}</p>
+                            <p><span className="font-semibold">کدپستی:</span> {customerProfile?.location?.postalcode || '--'}</p>
+                            <p><span className="font-semibold">شماره تماس:</span> {customerProfile?.mobile || '--'}</p>
+                            <p><span className="font-semibold">آدرس:</span> {`${customerProfile?.location?.address || '--'} ${customerProfile?.location?.plaque ? `پلاک ${customerProfile.location.plaque}` : ''}`.trim()}</p>
+                        </div>
+                    </section>
+                    <section className="py-4 overflow-x-auto">
+                        <table className="w-full text-right text-xs md:text-sm min-w-[400px]">
+                            <thead className="bg-gray-100">
+                                <tr><th className="p-2 font-semibold">ش</th><th className="p-2 font-semibold">شناسه</th><th className="p-2 font-semibold">شرح</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">مبلغ واحد</th><th className="p-2 font-semibold">جمع</th></tr>
+                            </thead>
+                            <tbody>
+                                {items.map((item, index) => (
+                                    <tr key={item.id} className="border-b">
+                                        <td className="p-2">{index + 1}</td>
+                                        <td className="p-2">{item.itemId}</td>
+                                        <td className="p-2">{item.description}</td>
+                                        <td className="p-2">{item.quantity}</td>
+                                        <td className="p-2">{formatCurrencyForPrint(item.unitPrice)}</td>
+                                        <td className="p-2">{formatCurrencyForPrint(item.total)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </section>
+                    <footer className="pt-4 border-t">
+                        {note && (
+                            <div className="mb-4">
+                                <h3 className="font-bold">یادداشت:</h3>
+                                <p className="text-sm">{note}</p>
+                            </div>
+                        )}
+                        <div className="flex justify-end items-end">
+                            <div className="text-left space-y-2 text-xs md:text-sm w-full md:w-1/2 md:max-w-xs">
+                                <div className="flex justify-between gap-4">
+                                    <span>جمع آیتم‌ها:</span>
+                                    <span>{formatCurrencyForPrint(subtotal)}</span>
+                                </div>
+                                {discount > 0 && (
+                                    <div className="flex justify-between gap-4 text-red-600">
+                                        <span>تخفیف:</span>
+                                        <span>- {formatCurrencyForPrint(discount)}</span>
+                                    </div>
+                                )}
+                                {shipping > 0 && (
+                                    <div className="flex justify-between gap-4">
+                                        <span>هزینه ارسال:</span>
+                                        <span>+ {formatCurrencyForPrint(shipping)}</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between gap-4 font-bold text-sm md:text-base border-t pt-2 mt-2">
+                                    <span>جمع کل:</span>
+                                    <span>{formatCurrencyForPrint(totalAmount)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </footer>
+                </div>
+            )
+        };
+
+
         const PrintablePreInvoice = ({ preInvoiceData, onClose }) => {
             const [sellerProfile, setSellerProfile] = React.useState(null);
             const [allSellers, setAllSellers] = React.useState([]);
@@ -647,6 +761,30 @@
             };
 
             const subtotal = preInvoiceData.items.reduce((sum, item) => sum + item.subtotal, 0);
+            
+            // Mapping data for the generic layout component
+            const layoutProps = {
+                title: "پیش فاکتور",
+                invoiceNumber: null,
+                invoiceDate: new Date().toLocaleDateString('fa-IR'),
+                sellerProfile,
+                customerProfile,
+                items: preInvoiceData.items.map(item => ({
+                    id: item.id,
+                    itemId: item.id,
+                    description: item.product.title,
+                    quantity: item.approved_supply_quantity,
+                    unitPrice: item.sale_price,
+                    total: item.subtotal
+                })),
+                subtotal,
+                discount: preInvoiceData.discount,
+                shipping: preInvoiceData.shipping,
+                totalAmount: preInvoiceData.totalAmount,
+                note: null,
+                formatCurrencyForPrint
+            };
+
 
             return (
                 <Modal isOpen={true} onClose={onClose} showHeader={false}>
@@ -665,80 +803,9 @@
                             </div>
                         </div>
                     </div>
-                    <div id="printable-invoice" className="bg-white text-black p-4 md:p-8 font-vazir">
-                        <header className="flex justify-between items-start pb-4 border-b">
-                            <div>
-                                <h1 className="text-xl md:text-2xl font-bold">پیش فاکتور</h1>
-                                <p className="text-sm">تاریخ: {new Date().toLocaleDateString('fa-IR')}</p>
-                            </div>
-                            <div>
-                                <svg className="w-24 h-10 md:w-32 md:h-12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect x="0" y="0" width="2" height="30" fill="black"/><rect x="4" y="0" width="1" height="30" fill="black"/><rect x="7" y="0" width="3" height="30" fill="black"/><rect x="12" y="0" width="1" height="30" fill="black"/><rect x="15" y="0" width="2" height="30" fill="black"/><rect x="19" y="0" width="1" height="30" fill="black"/><rect x="22" y="0" width="3" height="30" fill="black"/><rect x="27" y="0" width="1" height="30" fill="black"/><rect x="30" y="0" width="2" height="30" fill="black"/><rect x="34" y="0" width="1" height="30" fill="black"/><rect x="37" y="0" width="3" height="30" fill="black"/><rect x="42" y="0" width="1" height="30" fill="black"/><rect x="45" y="0" width="2" height="30" fill="black"/><rect x="49" y="0" width="1" height="30" fill="black"/><rect x="52" y="0" width="3" height="30" fill="black"/><rect x="57" y="0" width="1" height="30" fill="black"/><rect x="60" y="0" width="2" height="30" fill="black"/></svg>
-                            </div>
-                        </header>
-                        <section className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 py-4 border-b text-xs md:text-sm">
-                               <div>
-                                <h2 className="font-bold mb-2">فروشنده</h2>
-                                <p><span className="font-semibold">نام:</span> {sellerProfile?.fullname || '...'}</p>
-                                <p><span className="font-semibold">کدملی/کد اقتصادی :</span> {sellerProfile?.national_id || '--'}</p>
-                                <p><span className="font-semibold">کدپستی:</span> {sellerProfile?.location?.postalcode || '--'}</p>
-                                <p><span className="font-semibold">شماره تماس:</span> {sellerProfile?.mobile || '--'}</p>
-                                <p><span className="font-semibold">آدرس:</span> {`${sellerProfile?.location?.address || '--'} ${sellerProfile?.location?.plaque ? `پلاک ${sellerProfile.location.plaque}` : ''}`.trim()}</p>
-                            </div>
-                            <div>
-                                <h2 className="font-bold mb-2">خریدار</h2>
-                                <p><span className="font-semibold">نام:</span> {customerProfile?.fullname || '...'}</p>
-                                <p><span className="font-semibold">کدملی:</span> {customerProfile?.national_id || '--'}</p>
-                                <p><span className="font-semibold">کدپستی:</span> {customerProfile?.location?.postalcode || '--'}</p>
-                                <p><span className="font-semibold">شماره تماس:</span> {customerProfile?.mobile || '--'}</p>
-                                <p><span className="font-semibold">آدرس:</span> {`${customerProfile?.location?.address || '--'} ${customerProfile?.location?.plaque ? `پلاک ${customerProfile.location.plaque}` : ''}`.trim()}</p>
-                            </div>
-                        </section>
-                        <section className="py-4 overflow-x-auto">
-                            <table className="w-full text-right text-xs md:text-sm min-w-[400px]">
-                                <thead className="bg-gray-100">
-                                    <tr><th className="p-2 font-semibold">ش</th><th className="p-2 font-semibold">شناسه</th><th className="p-2 font-semibold">شرح</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">مبلغ واحد</th><th className="p-2 font-semibold">جمع</th></tr>
-                                </thead>
-                                <tbody>
-                                    {preInvoiceData.items.map((item, index) => (
-                                        <tr key={item.id} className="border-b">
-                                            <td className="p-2">{index + 1}</td>
-                                            <td className="p-2">{item.id}</td>
-                                            <td className="p-2">{item.product.title}</td>
-                                            <td className="p-2">{item.approved_supply_quantity}</td>
-                                            <td className="p-2">{formatCurrencyForPrint(item.sale_price)}</td>
-                                            <td className="p-2">{formatCurrencyForPrint(item.subtotal)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </section>
-                        <footer className="pt-4 border-t">
-                            <div className="flex justify-end items-end">
-                                <div className="text-left space-y-2 text-xs md:text-sm w-full md:w-1/2 md:max-w-xs">
-                                    <div className="flex justify-between gap-4">
-                                        <span>جمع آیتم‌ها:</span>
-                                        <span>{formatCurrencyForPrint(subtotal)}</span>
-                                    </div>
-                                    {(preInvoiceData.discount > 0) && (
-                                        <div className="flex justify-between gap-4 text-red-600">
-                                            <span>تخفیف:</span>
-                                            <span>- {formatCurrencyForPrint(preInvoiceData.discount)}</span>
-                                        </div>
-                                    )}
-                                    {(preInvoiceData.shipping > 0) && (
-                                        <div className="flex justify-between gap-4">
-                                            <span>هزینه ارسال:</span>
-                                            <span>+ {formatCurrencyForPrint(preInvoiceData.shipping)}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between gap-4 font-bold text-sm md:text-base border-t pt-2 mt-2">
-                                        <span>جمع کل:</span>
-                                        <span>{formatCurrencyForPrint(preInvoiceData.totalAmount)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </footer>
-                    </div>
+                    
+                    <PrintableInvoiceLayout {...layoutProps} />
+
                     <div className="flex flex-col sm:flex-row justify-end gap-4 mt-4 print-options">
                         <button onClick={onClose} className="w-full sm:w-auto bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg">بستن</button>
                         <button onClick={handlePrint} className="w-full sm:w-auto bg-indigo-600 text-white py-2 px-4 rounded-lg">چاپ</button>
@@ -754,7 +821,6 @@
             const [currency, setCurrency] = React.useState(APP_CONFIG.DEFAULT_CURRENCY);
             const [customerProfile, setCustomerProfile] = React.useState(null); // State for fresh customer data
 
-            // Effect to fetch all possible sellers for the dropdown
             React.useEffect(() => {
                 const fetchAllSellers = async () => {
                     const { data, error } = await supabaseClient
@@ -770,7 +836,6 @@
                 fetchAllSellers();
             }, []);
 
-            // Effect to fetch the details of the currently selected seller
             React.useEffect(() => {
                 if (!selectedSellerId) return;
                 const fetchSellerProfile = async () => {
@@ -789,7 +854,6 @@
                 fetchSellerProfile();
             }, [selectedSellerId]);
 
-            // Effect to fetch the latest customer profile for printing
             React.useEffect(() => {
                 if (!invoice?.customer?.id) return;
                 const fetchCustomerProfile = async () => {
@@ -812,7 +876,6 @@
                 window.print();
             };
             
-            // Formats currency based on the selected toggle (Toman/Rials)
             const formatCurrencyForPrint = (value) => {
                 if (value === null || typeof value === 'undefined' || isNaN(value)) return '-';
                 const amount = currency === 'Rials' ? value * 10 : value;
@@ -821,6 +884,29 @@
             };
 
             const subtotal = invoice.demandinvoicedetail.reduce((sum, detail) => sum + (detail.quantity * detail.sales_price), 0);
+            
+             // Mapping data for the generic layout component
+            const layoutProps = {
+                title: "فاکتور فروش",
+                invoiceNumber: invoice.id,
+                invoiceDate: new Date(invoice.createdat).toLocaleDateString('fa-IR'),
+                sellerProfile,
+                customerProfile,
+                items: invoice.demandinvoicedetail.map(detail => ({
+                    id: detail.id,
+                    itemId: detail.demand_item_id,
+                    description: detail.demand_item?.product?.title || 'محصول حذف شده',
+                    quantity: detail.quantity,
+                    unitPrice: detail.sales_price,
+                    total: detail.quantity * detail.sales_price,
+                })),
+                subtotal,
+                discount: invoice.discount,
+                shipping: invoice.totalshippingprice,
+                totalAmount: invoice.totalamount,
+                note: invoice.note,
+                formatCurrencyForPrint
+            };
             
             return (
                 <Modal isOpen={true} onClose={onClose} showHeader={false}>
@@ -847,91 +933,9 @@
                         </div>
                     </div>
 
-                    <div id="printable-invoice" className="bg-white text-black p-4 md:p-8 font-vazir">
-                        <header className="flex justify-between items-start pb-4 border-b">
-                            <div>
-                                <h1 className="text-xl md:text-2xl font-bold">فاکتور فروش</h1>
-                                <p className="text-sm">شماره: {invoice.id}</p>
-                                <p className="text-sm">تاریخ: {new Date(invoice.createdat).toLocaleDateString('fa-IR')}</p>
-                            </div>
-                            <div>
-                                 <svg className="w-24 h-10 md:w-32 md:h-12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect x="0" y="0" width="2" height="30" fill="black"/><rect x="4" y="0" width="1" height="30" fill="black"/><rect x="7" y="0" width="3" height="30" fill="black"/><rect x="12" y="0" width="1" height="30" fill="black"/><rect x="15" y="0" width="2" height="30" fill="black"/><rect x="19" y="0" width="1" height="30" fill="black"/><rect x="22" y="0" width="3" height="30" fill="black"/><rect x="27" y="0" width="1" height="30" fill="black"/><rect x="30" y="0" width="2" height="30" fill="black"/><rect x="34" y="0" width="1" height="30" fill="black"/><rect x="37" y="0" width="3" height="30" fill="black"/><rect x="42" y="0" width="1" height="30" fill="black"/><rect x="45" y="0" width="2" height="30" fill="black"/><rect x="49" y="0" width="1" height="30" fill="black"/><rect x="52" y="0" width="3" height="30" fill="black"/><rect x="57" y="0" width="1" height="30" fill="black"/><rect x="60" y="0" width="2" height="30" fill="black"/></svg>
-                            </div>
-                        </header>
+                    <PrintableInvoiceLayout {...layoutProps} />
 
-                        <section className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 py-4 border-b text-xs md:text-sm">
-                            <div>
-                                <h2 className="font-bold mb-2">فروشنده</h2>
-                                <p><span className="font-semibold">نام:</span> {sellerProfile?.fullname || '...'}</p>
-                                <p><span className="font-semibold">کدملی/کد اقتصادی :</span> {sellerProfile?.national_id || '--'}</p>
-                                <p><span className="font-semibold">کدپستی:</span> {sellerProfile?.location?.postalcode || '--'}</p>
-                                <p><span className="font-semibold">شماره تماس:</span> {sellerProfile?.mobile || '--'}</p>
-                                <p><span className="font-semibold">آدرس:</span> {`${sellerProfile?.location?.address || '--'} ${sellerProfile?.location?.plaque ? `پلاک ${sellerProfile.location.plaque}` : ''}`.trim()}</p>
-                            </div>
-                            <div>
-                                <h2 className="font-bold mb-2">خریدار</h2>
-                                <p><span className="font-semibold">نام:</span> {customerProfile?.fullname || '...'}</p>
-                                <p><span className="font-semibold">کدملی:</span> {customerProfile?.national_id || '--'}</p>
-                                <p><span className="font-semibold">کدپستی:</span> {customerProfile?.location?.postalcode || '--'}</p>
-                                <p><span className="font-semibold">شماره تماس:</span> {customerProfile?.mobile || '--'}</p>
-                                <p><span className="font-semibold">آدرس:</span> {`${customerProfile?.location?.address || '--'} ${customerProfile?.location?.plaque ? `پلاک ${customerProfile.location.plaque}` : ''}`.trim()}</p>
-                            </div>
-                        </section>
-
-                        <section className="py-4 overflow-x-auto">
-                            <table className="w-full text-right text-xs md:text-sm min-w-[400px]">
-                                <thead className="bg-gray-100">
-                                    <tr><th className="p-2 font-semibold">ش</th><th className="p-2 font-semibold">شناسه</th><th className="p-2 font-semibold">شرح</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">مبلغ واحد</th><th className="p-2 font-semibold">جمع</th></tr>
-                                </thead>
-                                <tbody>
-                                    {invoice.demandinvoicedetail.map((detail, index) => (
-                                        <tr key={detail.id} className="border-b">
-                                            <td className="p-2">{index + 1}</td>
-                                            <td className="p-2">{detail.demand_item_id}</td>
-                                            <td className="p-2">{detail.demand_item?.product?.title || 'محصول حذف شده'}</td>
-                                            <td className="p-2">{detail.quantity}</td>
-                                            <td className="p-2">{formatCurrencyForPrint(detail.sales_price)}</td>
-                                            <td className="p-2">{formatCurrencyForPrint(detail.quantity * detail.sales_price)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </section>
-
-                        <footer className="pt-4 border-t">
-                            {invoice.note && (
-                                <div className="mb-4">
-                                    <h3 className="font-bold">یادداشت:</h3>
-                                    <p className="text-sm">{invoice.note}</p>
-                                </div>
-                            )}
-                            <div className="flex justify-end items-end">
-                                 <div className="text-left space-y-2 text-xs md:text-sm w-full md:w-1/2 md:max-w-xs">
-                                    <div className="flex justify-between gap-4">
-                                        <span>جمع آیتم‌ها:</span>
-                                        <span>{formatCurrencyForPrint(subtotal)}</span>
-                                    </div>
-                                    {(invoice.discount > 0) && (
-                                        <div className="flex justify-between gap-4 text-red-600">
-                                            <span>تخفیف:</span>
-                                            <span>- {formatCurrencyForPrint(invoice.discount)}</span>
-                                        </div>
-                                    )}
-                                    {(invoice.totalshippingprice > 0) && (
-                                        <div className="flex justify-between gap-4">
-                                            <span>هزینه ارسال:</span>
-                                            <span>+ {formatCurrencyForPrint(invoice.totalshippingprice)}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between gap-4 font-bold text-sm md:text-base border-t pt-2 mt-2">
-                                        <span>جمع کل:</span>
-                                        <span>{formatCurrencyForPrint(invoice.totalamount)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </footer>
-                    </div>
-                     <div className="flex flex-col sm:flex-row justify-end gap-4 mt-4 print-options">
+                   <div className="flex flex-col sm:flex-row justify-end gap-4 mt-4 print-options">
                         <button onClick={onClose} className="w-full sm:w-auto bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg">بستن</button>
                         <button onClick={handlePrint} className="w-full sm:w-auto bg-indigo-600 text-white py-2 px-4 rounded-lg">چاپ</button>
                     </div>
@@ -1047,7 +1051,9 @@
             
             // On mount, fetch data for the initial tab.
             React.useEffect(() => {
-                fetchPendingData();
+                if (activeTab === 'pending') {
+                    fetchPendingData();
+                }
             }, []);
             
             // Fetch historical data when the tab is switched to 'history' or when the page changes.
@@ -1058,13 +1064,14 @@
             }, [activeTab, currentPage]);
             
             const refreshData = async () => {
-                await fetchPendingData();
-                if(currentPage !== 0) {
-                    // This will trigger the useEffect to refetch the first page of historical data
-                    setCurrentPage(0);
+                if (activeTab === 'pending') {
+                    await fetchPendingData();
                 } else {
-                    // Already on page 0, so manually refetch
-                    await fetchHistoricalData();
+                     if(currentPage !== 0) {
+                        setCurrentPage(0); // This will trigger the useEffect to refetch the first page
+                    } else {
+                        await fetchHistoricalData(); // Already on page 0, so manually refetch
+                    }
                 }
             };
             
@@ -1214,7 +1221,8 @@
                     
                     addToast('فاکتور و تخصیص پرداخت با موفقیت ثبت شد!', 'success');
                     setAllocationModalState({ isOpen: false, preInvoiceData: null });
-                    refreshData();
+                    await fetchPendingData(); // Refresh pending list
+                    if (activeTab === 'history') await fetchHistoricalData(); // Refresh history if viewing it
                 } catch (err) {
                     console.error("Error creating invoice and allocations:", err);
                     addToast(`خطا در ایجاد فاکتور: ${err.message}`, 'error');
@@ -1240,10 +1248,18 @@
             const handleClosePrintPreInvoiceModal = () => setPrintingPreInvoice(null);
 
             const handleSaveInvoice = () => {
-                refreshData();
+                fetchHistoricalData(); // Refresh historical data after edit
                 handleCloseEditModal();
             };
 
+            const handleTabChange = (tab) => {
+                setActiveTab(tab);
+                setCurrentPage(0); // Reset page when switching tabs
+                if (tab === 'pending' && Object.keys(preInvoices).length === 0) {
+                    fetchPendingData();
+                }
+            };
+            
             const nextPage = () => {
                 if ((currentPage + 1) * invoicesPerPage < totalInvoices) {
                     setCurrentPage(currentPage + 1);
@@ -1258,11 +1274,21 @@
 
             return (
                 <div className="p-4 md:p-6 lg:p-8 text-gray-900 dark:text-gray-100">
-                    <h1 className="text-2xl md:text-3xl font-bold mb-6">مدیریت فاکتورها</h1>
+                    <div className="flex justify-between items-center mb-6">
+                        <h1 className="text-2xl md:text-3xl font-bold">مدیریت فاکتورها</h1>
+                        <button 
+                            onClick={refreshData} 
+                            disabled={isLoading}
+                            className="bg-indigo-500 text-white py-2 px-4 rounded-lg font-semibold text-sm hover:bg-indigo-600 transition-colors disabled:bg-indigo-400 disabled:cursor-wait"
+                        >
+                            {isLoading ? '...' : 'بارگذاری مجدد'}
+                        </button>
+                    </div>
+
                     <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
                         <nav className="-mb-px flex space-x-4 space-x-reverse">
-                            <button onClick={() => setActiveTab('pending')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'pending' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>آماده صدور</button>
-                            <button onClick={() => setActiveTab('history')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه فاکتورها</button>
+                            <button onClick={() => handleTabChange('pending')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'pending' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>آماده صدور</button>
+                            <button onClick={() => handleTabChange('history')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه فاکتورها</button>
                         </nav>
                     </div>
                     
@@ -1424,7 +1450,7 @@
                             <div className="flex justify-between items-center mt-4 p-2">
                                 <button 
                                     onClick={prevPage} 
-                                    disabled={currentPage === 0}
+                                    disabled={currentPage === 0 || isLoading}
                                     className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     قبلی
@@ -1434,7 +1460,7 @@
                                 </span>
                                 <button 
                                     onClick={nextPage} 
-                                    disabled={(currentPage + 1) * invoicesPerPage >= totalInvoices}
+                                    disabled={(currentPage + 1) * invoicesPerPage >= totalInvoices || isLoading}
                                     className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     بعدی
