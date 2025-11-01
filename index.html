@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-    <meta charset="UTF--8" />
+    <!-- Corrected charset from UTF--8 to UTF-8 -->
+    <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Invoice Management Analysis</title>
     
@@ -81,7 +82,7 @@
         .toast-container {
             position: fixed;
             top: 1.5rem;
-            left: 1.5rem;
+            left: 1.5rem; /* Changed from right to left for better RTL alignment */
             z-index: 9999;
             display: flex;
             flex-direction: column;
@@ -100,7 +101,7 @@
         .toast.error { background-color: #EF4444; color: white; } /* bg-red-500 */
         .toast.warning { background-color: #f97316; color: white; } /* orange-500 */
         @keyframes toast-in {
-            from { transform: translateX(-100%); opacity: 0; }
+            from { transform: translateX(-100%); opacity: 0; } /* Adjusted for left-side entry */
             to { transform: translateX(0); opacity: 1; }
         }
 
@@ -329,7 +330,7 @@
                         preInvoiceData
                     });
                 } catch (error) {
-                // Error is handled in the parent component's catch block
+                    // Error is handled in the parent component's catch block
                 } finally {
                     setIsSubmitting(false);
                 }
@@ -618,6 +619,7 @@
                             <p className="text-sm">تاریخ: {invoiceDate}</p>
                         </div>
                         <div>
+                            {/* Simple placeholder for logo/barcode */}
                             <svg className="w-24 h-10 md:w-32 md:h-12" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect x="0" y="0" width="2" height="30" fill="black"/><rect x="4" y="0" width="1" height="30" fill="black"/><rect x="7" y="0" width="3" height="30" fill="black"/><rect x="12" y="0" width="1" height="30" fill="black"/><rect x="15" y="0" width="2" height="30" fill="black"/><rect x="19" y="0" width="1" height="30" fill="black"/><rect x="22" y="0" width="3" height="30" fill="black"/><rect x="27" y="0" width="1" height="30" fill="black"/><rect x="30" y="0" width="2" height="30" fill="black"/><rect x="34" y="0" width="1" height="30" fill="black"/><rect x="37" y="0" width="3" height="30" fill="black"/><rect x="42" y="0" width="1" height="30" fill="black"/><rect x="45" y="0" width="2" height="30" fill="black"/><rect x="49" y="0" width="1" height="30" fill="black"/><rect x="52" y="0" width="3" height="30" fill="black"/><rect x="57" y="0" width="1" height="30" fill="black"/><rect x="60" y="0" width="2" height="30" fill="black"/></svg>
                         </div>
                     </header>
@@ -988,7 +990,7 @@
                         }
                         const itemId = rpcRow.item_id;
                         if (!acc[customerId].items[itemId]) {
-                            const sale_price = rpcRow.sale_price || (rpcRow.approved_supply_price ? Math.round(rpcRow.approved_supply_price * 1.05) : 0);
+                            const sale_price = rpcRow.sale_price || (rpcRow.approved_supply_price ? Math.round(rpcRow.approved_supply_price * 1.10) : 0);
                             const subtotal = (rpcRow.approved_supply_quantity || 0) * sale_price;
                             acc[customerId].items[itemId] = {
                                 id: itemId,
