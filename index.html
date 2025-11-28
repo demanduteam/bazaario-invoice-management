@@ -11,7 +11,8 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
-    <!-- Tailwind: Config first, then the library -->
+    <!-- Tailwind: Library first, then Config -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -24,7 +25,6 @@
             },
         }
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Babel, which compiles the main script -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -444,8 +444,9 @@
             const recalculateTotal = (updatedInvoice) => {
                 const subtotal = updatedInvoice.demandinvoicedetail.reduce((sum, item) => sum + (item.quantity * item.sales_price), 0);
                 const discount = updatedInvoice.discount || 0;
-                const shipping = updatedInvoice.totalshippingprice || 0;
-                return subtotal - discount + shipping;
+                // Calculate total shipping from items
+                const shipping = updatedInvoice.demandinvoicedetail.reduce((sum, item) => sum + (item.shippingprice || 0), 0);
+                return { total: subtotal - discount + shipping, totalShipping: shipping };
             };
 
             const handlePriceChange = (detailId, newPrice) => {
@@ -457,8 +458,22 @@
                         return detail;
                     });
                     const newInvoice = { ...prev, demandinvoicedetail: updatedDetails };
-                    const newTotalAmount = recalculateTotal(newInvoice);
-                    return { ...newInvoice, totalamount: newTotalAmount };
+                    const { total, totalShipping } = recalculateTotal(newInvoice);
+                    return { ...newInvoice, totalamount: total, totalshippingprice: totalShipping };
+                });
+            };
+
+            const handleShippingChange = (detailId, newShipping) => {
+                setInvoice(prev => {
+                    const updatedDetails = prev.demandinvoicedetail.map(detail => {
+                        if (detail.id === detailId) {
+                            return { ...detail, shippingprice: parseFormattedNumber(newShipping) };
+                        }
+                        return detail;
+                    });
+                    const newInvoice = { ...prev, demandinvoicedetail: updatedDetails };
+                    const { total, totalShipping } = recalculateTotal(newInvoice);
+                    return { ...newInvoice, totalamount: total, totalshippingprice: totalShipping };
                 });
             };
 
@@ -470,8 +485,9 @@
                     } else {
                         newInvoice[field] = parseFormattedNumber(value);
                     }
-                    const newTotalAmount = recalculateTotal(newInvoice);
-                    return { ...newInvoice, totalamount: newTotalAmount };
+                    const { total, totalShipping } = recalculateTotal(newInvoice);
+                    // If changing discount, we just update totalamount, shipping stays calculated
+                    return { ...newInvoice, totalamount: total };
                 });
             };
 
@@ -481,7 +497,10 @@
                     const detailUpdates = invoice.demandinvoicedetail.map(detail => 
                         supabaseClient
                             .from('demandinvoicedetail')
-                            .update({ sales_price: detail.sales_price })
+                            .update({ 
+                                sales_price: detail.sales_price,
+                                shippingprice: detail.shippingprice 
+                            })
                             .eq('id', detail.id)
                     );
                     const detailResults = await Promise.all(detailUpdates);
@@ -494,7 +513,7 @@
                         .update({ 
                             totalamount: invoice.totalamount,
                             discount: invoice.discount || 0,
-                            totalshippingprice: invoice.totalshippingprice || 0,
+                            totalshippingprice: invoice.totalshippingprice, // Computed from items
                             note: invoice.note || ''
                         })
                         .eq('id', invoice.id);
@@ -519,23 +538,30 @@
                                 <thead>
                                     <tr>
                                         <th className="p-2">محصول</th>
-                                        <th className="p-2">تامین‌کننده</th>
                                         <th className="p-2">تعداد</th>
                                         <th className="p-2">قیمت فروش</th>
+                                        <th className="p-2">هزینه ارسال</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {invoice.demandinvoicedetail.map(detail => (
                                         <tr key={detail.id}>
                                             <td className="p-2">{detail.product?.title || 'نامشخص'}</td>
-                                            <td className="p-2">{detail.profiles?.fullname || 'نامشخص'}</td>
                                             <td className="p-2">{detail.quantity}</td>
                                             <td className="p-2">
                                                 <input
                                                     type="text"
                                                     value={formatNumberWithCommas(detail.sales_price)}
                                                     onChange={e => handlePriceChange(detail.id, e.target.value)}
-                                                    className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center"
+                                                    className="w-28 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center"
+                                                />
+                                            </td>
+                                            <td className="p-2">
+                                                <input
+                                                    type="text"
+                                                    value={formatNumberWithCommas(detail.shippingprice)}
+                                                    onChange={e => handleShippingChange(detail.id, e.target.value)}
+                                                    className="w-28 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center"
                                                 />
                                             </td>
                                         </tr>
@@ -556,14 +582,15 @@
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">هزینه ارسال (تومان)</label>
+                                <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">جمع کل هزینه ارسال (تومان)</label>
                                 <input
                                     type="text"
-                                    placeholder="0"
                                     value={formatNumberWithCommas(invoice.totalshippingprice)}
-                                    onChange={e => handleInputChange('totalshippingprice', e.target.value)}
-                                    className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
+                                    readOnly
+                                    disabled
+                                    className="w-full bg-gray-200 dark:bg-gray-600 p-2 rounded-md text-center cursor-not-allowed"
                                 />
+                                <span className="text-xs text-gray-500 dark:text-gray-400 mt-1 block">محاسبه خودکار از جمع هزینه ارسال اقلام</span>
                             </div>
                             <div className="md:col-span-2">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">یادداشت</label>
@@ -644,7 +671,14 @@
                     <section className="py-4 overflow-x-auto">
                         <table className="w-full text-right text-xs md:text-sm min-w-[400px]">
                             <thead className="bg-gray-100">
-                                <tr><th className="p-2 font-semibold">ش</th><th className="p-2 font-semibold">شناسه</th><th className="p-2 font-semibold">شرح</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">مبلغ واحد</th><th className="p-2 font-semibold">جمع</th></tr>
+                                <tr>
+                                    <th className="p-2 font-semibold">ش</th>
+                                    <th className="p-2 font-semibold">شناسه</th>
+                                    <th className="p-2 font-semibold">شرح</th>
+                                    <th className="p-2 font-semibold">تعداد</th>
+                                    <th className="p-2 font-semibold">مبلغ واحد</th>
+                                    <th className="p-2 font-semibold">جمع</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 {items.map((item, index) => (
@@ -681,7 +715,7 @@
                                 )}
                                 {shipping > 0 && (
                                     <div className="flex justify-between gap-4">
-                                        <span>هزینه ارسال:</span>
+                                        <span>جمع هزینه ارسال:</span>
                                         <span>+ {formatCurrencyForPrint(shipping)}</span>
                                     </div>
                                 )}
@@ -763,6 +797,7 @@
             };
 
             const subtotal = preInvoiceData.items.reduce((sum, item) => sum + item.subtotal, 0);
+            const totalShipping = preInvoiceData.items.reduce((sum, item) => sum + (item.shipping_price || 0), 0);
             
             // Mapping data for the generic layout component
             const layoutProps = {
@@ -777,11 +812,12 @@
                     description: item.product.title,
                     quantity: item.approved_supply_quantity,
                     unitPrice: item.sale_price,
+                    shipping: item.shipping_price || 0,
                     total: item.subtotal
                 })),
                 subtotal,
                 discount: preInvoiceData.discount,
-                shipping: preInvoiceData.shipping,
+                shipping: totalShipping,
                 totalAmount: preInvoiceData.totalAmount,
                 note: null,
                 formatCurrencyForPrint
@@ -900,6 +936,7 @@
                     description: detail.demand_item?.product?.title || 'محصول حذف شده',
                     quantity: detail.quantity,
                     unitPrice: detail.sales_price,
+                    shipping: detail.shippingprice || 0,
                     total: detail.quantity * detail.sales_price,
                 })),
                 subtotal,
@@ -961,10 +998,11 @@
             const [printingPreInvoice, setPrintingPreInvoice] = React.useState(null);
             const { addToast } = useToasts();
             
-            // --- Pagination State ---
+            // --- Search & Pagination State ---
             const [currentPage, setCurrentPage] = React.useState(0);
             const [invoicesPerPage] = React.useState(10);
             const [totalInvoices, setTotalInvoices] = React.useState(0);
+            const [searchQuery, setSearchQuery] = React.useState('');
 
             const fetchPendingData = async () => {
                 setIsLoading(true);
@@ -997,6 +1035,7 @@
                                 product: { title: rpcRow.product_name },
                                 approved_supply_quantity: rpcRow.approved_supply_quantity,
                                 sale_price,
+                                shipping_price: 0, // Initial shipping price per item
                                 subtotal
                             };
                             acc[customerId].totalAmount += subtotal;
@@ -1028,13 +1067,37 @@
                     const from = currentPage * invoicesPerPage;
                     const to = from + invoicesPerPage - 1;
 
-                    const { data: historicalData, error: historicalError, count } = await supabaseClient
-                        .from('demandinvoice')
-                        .select(`
+                    // Dynamically build the query based on search
+                    // If searching by customer name, we need !inner join to filter.
+                    // If no search, we use standard left join to ensure we get results even if customer data is missing (though unlikely in this schema).
+                    let queryBuilder = supabaseClient.from('demandinvoice');
+                    
+                    // Base Select
+                    let selectString = `
                             *, 
-                            customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque)), 
                             demandinvoicedetail(*, profiles:supplieruserid(fullname), demand_item:demand_item_id(product(title)), location:locationid(postalcode))
-                        `, { count: 'exact' })
+                    `;
+
+                    // Smart Search Logic
+                    if (searchQuery) {
+                        // Check if numeric -> assume searching by ID
+                        if (!isNaN(searchQuery) && !isNaN(parseFloat(searchQuery))) {
+                            // Search by ID, keep standard join for customer
+                             selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
+                             queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).eq('id', searchQuery);
+                        } else {
+                             // Search by Text -> assume Customer Name
+                             // Use !inner to filter rows based on the joined table condition
+                             selectString += `, customer:customeruserid!inner(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
+                             queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).ilike('customer.fullname', `%${searchQuery}%`);
+                        }
+                    } else {
+                        // No Search -> Standard fetch
+                        selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
+                        queryBuilder = queryBuilder.select(selectString, { count: 'exact' });
+                    }
+
+                    const { data: historicalData, error: historicalError, count } = await queryBuilder
                         .order('createdat', { ascending: false })
                         .range(from, to);
                         
@@ -1058,12 +1121,12 @@
                 }
             }, []);
             
-            // Fetch historical data when the tab is switched to 'history' or when the page changes.
+            // Fetch historical data when the tab is switched to 'history' or when page/search changes.
             React.useEffect(() => {
                 if(activeTab === 'history') {
                     fetchHistoricalData();
                 }
-            }, [activeTab, currentPage]);
+            }, [activeTab, currentPage, searchQuery]); // Added searchQuery dependency
             
             const refreshData = async () => {
                 if (activeTab === 'pending') {
@@ -1076,11 +1139,17 @@
                     }
                 }
             };
+
+            const handleSearchChange = (e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(0); // Reset to first page on search
+            };
             
             const recalculatePreInvoiceTotal = (invoice) => {
                 const subtotal = invoice.items.reduce((sum, item) => sum + item.subtotal, 0);
                 const discount = invoice.discount || 0;
-                const shipping = invoice.shipping || 0;
+                // Sum shipping from all items
+                const shipping = invoice.items.reduce((sum, item) => sum + (item.shipping_price || 0), 0);
                 return subtotal - discount + shipping;
             }
 
@@ -1107,6 +1176,25 @@
                         return item;
                     });
                     invoice.totalAmount = recalculatePreInvoiceTotal(invoice);
+                    newInvoices[customerId] = invoice;
+                    return newInvoices;
+                });
+            };
+
+            const handleItemShippingChange = (customerId, itemId, newShipping) => {
+                setPreInvoices(prev => {
+                    const newInvoices = { ...prev };
+                    const invoice = { ...newInvoices[customerId] };
+                    invoice.items = invoice.items.map(item => {
+                        if (item.id === itemId) {
+                            const shipping = parseFormattedNumber(newShipping);
+                            return { ...item, shipping_price: shipping };
+                        }
+                        return item;
+                    });
+                    invoice.totalAmount = recalculatePreInvoiceTotal(invoice);
+                    // Also update the total shipping display if needed (though it's derived)
+                    invoice.shipping = invoice.items.reduce((sum, item) => sum + (item.shipping_price || 0), 0);
                     newInvoices[customerId] = invoice;
                     return newInvoices;
                 });
@@ -1138,7 +1226,11 @@
             };
 
             const handleSaveAllocationAndCreateInvoice = async ({ totalAmountReceived, allocations, preInvoiceData }) => {
-                const { customerId, items, discount, shipping, demandid } = preInvoiceData;
+                const { customerId, items, discount, demandid } = preInvoiceData;
+                
+                // Calculate total shipping from items
+                const totalShipping = items.reduce((sum, item) => sum + (item.shipping_price || 0), 0);
+
                 setIsSubmitting(customerId);
                 try {
                     // 1. Create Invoice Header
@@ -1146,13 +1238,13 @@
                     const { data: invoiceHeader, error: headerError } = await supabaseClient
                         .from('demandinvoice')
                         .insert({ 
-                            demandid: demandid, // <-- Pass the demand ID here
+                            demandid: demandid, 
                             customeruserid: customerId, 
                             totalquantity: totalQuantity, 
                             paymentstatusid: 1, // Assuming 1 is 'Paid'
                             totalamount: preInvoiceData.totalAmount,
                             discount: discount || 0,
-                            totalshippingprice: shipping || 0
+                            totalshippingprice: totalShipping // Use computed total shipping
                         })
                         .select()
                         .single();
@@ -1174,6 +1266,7 @@
                             demand_item_id: item.id, 
                             quantity: item.approved_supply_quantity,
                             sales_price: item.sale_price,
+                            shippingprice: item.shipping_price || 0, // Save item shipping price
                             supplieruserid: assignment ? assignment.supplieruserid : null
                         };
                     });
@@ -1257,6 +1350,7 @@
             const handleTabChange = (tab) => {
                 setActiveTab(tab);
                 setCurrentPage(0); // Reset page when switching tabs
+                setSearchQuery(''); // Reset search when switching tabs
                 if (tab === 'pending' && Object.keys(preInvoices).length === 0) {
                     fetchPendingData();
                 }
@@ -1294,180 +1388,237 @@
                         </nav>
                     </div>
                     
-                    {isLoading && <div className="spinner"></div>}
-                    {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
-                    
-                    {!isLoading && !error && activeTab === 'pending' && (
-                        <div className="space-y-8">
-                            {Object.keys(preInvoices).length > 0 ? Object.entries(preInvoices).map(([customerId, invoiceData]) => (
-                                <div key={customerId} className="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
-                                        <div><h2 className="text-lg md:text-xl font-bold">پیش‌فاکتور برای: <span className="font-mono">{invoiceData.customerName}</span></h2></div>
-                                        <div className="mt-4 sm:mt-0 text-left w-full sm:w-auto"><p className="text-sm text-gray-600 dark:text-gray-400">مبلغ کل:</p><p className="text-xl md:text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(invoiceData.totalAmount)} تومان</p></div>
-                                    </div>
-                                    
-                                    {/* Desktop Table for Items */}
+                    {/* Content Area */}
+                    {activeTab === 'pending' && (
+                        <>
+                            {isLoading && <div className="spinner"></div>}
+                            {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
+                            {!isLoading && !error && (
+                                <div className="space-y-8">
+                                    {Object.keys(preInvoices).length > 0 ? Object.entries(preInvoices).map(([customerId, invoiceData]) => (
+                                        <div key={customerId} className="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+                                                <div><h2 className="text-lg md:text-xl font-bold">پیش‌فاکتور برای: <span className="font-mono">{invoiceData.customerName}</span></h2></div>
+                                                <div className="mt-4 sm:mt-0 text-left w-full sm:w-auto"><p className="text-sm text-gray-600 dark:text-gray-400">مبلغ کل:</p><p className="text-xl md:text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(invoiceData.totalAmount)} تومان</p></div>
+                                            </div>
+                                            
+                                            {/* Desktop Table for Items */}
+                                            <div className="hidden md:block overflow-x-auto">
+                                                <table className="w-full text-right min-w-[600px]">
+                                                    <thead><tr className="border-b dark:border-gray-700"><th className="p-2 font-semibold">محصول</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">قیمت فروش</th><th className="p-2 font-semibold">هزینه ارسال</th><th className="p-2 font-semibold">مبلغ کل</th></tr></thead>
+                                                    <tbody>
+                                                        {invoiceData.items.map(item => (
+                                                            <tr key={item.id} className="border-b dark:border-gray-700 last:border-b-0">
+                                                                <td className="p-2">{item.product.title}</td>
+                                                                <td className="p-2">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.approved_supply_quantity} 
+                                                                        onChange={e => handleQuantityChange(customerId, item.id, e.target.value)} 
+                                                                        className="w-20 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" 
+                                                                    />
+                                                                </td>
+                                                                <td className="p-2"><input type="text" value={formatNumberWithCommas(item.sale_price)} onChange={e => handlePriceChange(customerId, item.id, e.target.value)} className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" /></td>
+                                                                <td className="p-2"><input type="text" value={formatNumberWithCommas(item.shipping_price)} onChange={e => handleItemShippingChange(customerId, item.id, e.target.value)} className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" /></td>
+                                                                <td className="p-2">{formatCurrency(item.subtotal)} تومان</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {/* Mobile Card View for Items */}
+                                            <div className="md:hidden space-y-3">
+                                                {invoiceData.items.map(item => (
+                                                    <div key={item.id} className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                                                        <p className="font-bold mb-2">{item.product.title}</p>
+                                                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                                            <div>
+                                                                <label className="block text-xs text-gray-500 dark:text-gray-400">تعداد</label>
+                                                                <input 
+                                                                    type="number" 
+                                                                    value={item.approved_supply_quantity} 
+                                                                    onChange={e => handleQuantityChange(customerId, item.id, e.target.value)} 
+                                                                    className="w-full bg-white dark:bg-gray-600 p-1 rounded-md text-center mt-1" 
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs text-gray-500 dark:text-gray-400">قیمت فروش</label>
+                                                                <input 
+                                                                    type="text" 
+                                                                    value={formatNumberWithCommas(item.sale_price)} 
+                                                                    onChange={e => handlePriceChange(customerId, item.id, e.target.value)} 
+                                                                    className="w-full bg-white dark:bg-gray-600 p-1 rounded-md text-center mt-1" 
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <label className="block text-xs text-gray-500 dark:text-gray-400">هزینه ارسال</label>
+                                                                <input 
+                                                                    type="text" 
+                                                                    value={formatNumberWithCommas(item.shipping_price)} 
+                                                                    onChange={e => handleItemShippingChange(customerId, item.id, e.target.value)} 
+                                                                    className="w-full bg-white dark:bg-gray-600 p-1 rounded-md text-center mt-1" 
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-2 mt-2 pt-2 border-t dark:border-gray-600">
+                                                                <span className="text-xs text-gray-500 dark:text-gray-400">مبلغ کل</span>
+                                                                <p className="font-semibold">{formatCurrency(item.subtotal)} تومان</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">تخفیف (تومان)</label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="0"
+                                                        value={formatNumberWithCommas(invoiceData.discount)}
+                                                        onChange={e => handlePreInvoiceMetaChange(customerId, 'discount', e.target.value)}
+                                                        className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">جمع کل هزینه ارسال (تومان)</label>
+                                                    <input
+                                                        type="text"
+                                                        value={formatNumberWithCommas(invoiceData.shipping)}
+                                                        disabled
+                                                        className="w-full bg-gray-200 dark:bg-gray-600 p-2 rounded-md text-center cursor-not-allowed"
+                                                    />
+                                                    <span className="text-xs text-gray-500 dark:text-gray-400 mt-1 block">محاسبه خودکار از جمع هزینه ارسال اقلام</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-end gap-3">
+                                                <button onClick={() => handleOpenPrintPreInvoiceModal(invoiceData)} className="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-5 rounded-lg">چاپ پیش‌فاکتور</button>
+                                                <button onClick={() => handleInitiatePayment(customerId)} disabled={isSubmitting === customerId} className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg disabled:bg-green-400">ثبت و تخصیص پرداخت</button>
+                                            </div>
+                                        </div>
+                                    )) : <p className="text-center p-12 bg-white dark:bg-gray-800 rounded-lg shadow">هیچ فاکتوری برای صدور وجود ندارد.</p>}
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {activeTab === 'history' && (
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                            
+                            {/* --- Search Bar (MOVED OUTSIDE LOADING CHECK) --- */}
+                            <div className="mb-4">
+                                <label htmlFor="invoice-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">جستجو</label>
+                                <div className="relative">
+                                    <input
+                                        id="invoice-search"
+                                        type="text"
+                                        placeholder="جستجو بر اساس نام مشتری یا شماره فاکتور..."
+                                        value={searchQuery}
+                                        onChange={handleSearchChange}
+                                        className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                    />
+                                    {searchQuery && (
+                                        <button 
+                                            onClick={() => { setSearchQuery(''); setCurrentPage(0); }}
+                                            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                        >
+                                            &times;
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* --- Loading State --- */}
+                            {isLoading && <div className="spinner"></div>}
+                            
+                            {/* --- Error State --- */}
+                            {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
+
+                            {/* --- Content (Only if not loading and no error) --- */}
+                            {!isLoading && !error && (
+                                <>
+                                    {/* Desktop Table */}
                                     <div className="hidden md:block overflow-x-auto">
                                         <table className="w-full text-right min-w-[600px]">
-                                            <thead><tr className="border-b dark:border-gray-700"><th className="p-2 font-semibold">محصول</th><th className="p-2 font-semibold">تعداد</th><th className="p-2 font-semibold">قیمت فروش</th><th className="p-2 font-semibold">مبلغ کل</th></tr></thead>
+                                            <thead><tr className="border-b dark:border-gray-700"><th className="p-3 font-semibold">شماره فاکتور</th><th className="p-3 font-semibold">مشتری</th><th className="p-3 font-semibold">تاریخ</th><th className="p-3 font-semibold">مبلغ کل</th><th className="p-3 font-semibold">عملیات</th></tr></thead>
                                             <tbody>
-                                                {invoiceData.items.map(item => (
-                                                    <tr key={item.id} className="border-b dark:border-gray-700 last:border-b-0">
-                                                        <td className="p-2">{item.product.title}</td>
-                                                        <td className="p-2">
-                                                            <input 
-                                                                type="number" 
-                                                                value={item.approved_supply_quantity} 
-                                                                onChange={e => handleQuantityChange(customerId, item.id, e.target.value)} 
-                                                                className="w-20 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" 
-                                                            />
+                                                {invoices.length > 0 ? invoices.map(invoice => (
+                                                    <tr key={invoice.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                        <td className="p-3 font-mono">{invoice.id}</td>
+                                                        <td className="p-3">{invoice.customer?.fullname || 'نامشخص'}</td>
+                                                        <td className="p-3">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</td>
+                                                        <td className="p-3 font-semibold">{formatCurrency(invoice.totalamount)} تومان</td>
+                                                        <td className="p-3 space-x-4 space-x-reverse">
+                                                            <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold">ویرایش</button>
+                                                            <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold">چاپ</button>
                                                         </td>
-                                                        <td className="p-2"><input type="text" value={formatNumberWithCommas(item.sale_price)} onChange={e => handlePriceChange(customerId, item.id, e.target.value)} className="w-32 bg-gray-100 dark:bg-gray-700 p-1 rounded-md text-center" /></td>
-                                                        <td className="p-2">{formatCurrency(item.subtotal)} تومان</td>
                                                     </tr>
-                                                ))}
+                                                )) : (
+                                                    <tr>
+                                                        <td colSpan="5" className="p-8 text-center text-gray-500">هیچ فاکتوری یافت نشد.</td>
+                                                    </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
 
-                                    {/* Mobile Card View for Items */}
-                                    <div className="md:hidden space-y-3">
-                                        {invoiceData.items.map(item => (
-                                            <div key={item.id} className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
-                                                <p className="font-bold mb-2">{item.product.title}</p>
-                                                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                     {/* Mobile Card View */}
+                                    <div className="md:hidden space-y-4">
+                                        {invoices.length > 0 ? invoices.map(invoice => (
+                                            <div key={invoice.id} className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg shadow">
+                                                <div className="flex justify-between items-center mb-2 pb-2 border-b dark:border-gray-600">
                                                     <div>
-                                                        <label className="block text-xs text-gray-500 dark:text-gray-400">تعداد</label>
-                                                        <input 
-                                                            type="number" 
-                                                            value={item.approved_supply_quantity} 
-                                                            onChange={e => handleQuantityChange(customerId, item.id, e.target.value)} 
-                                                            className="w-full bg-white dark:bg-gray-600 p-1 rounded-md text-center mt-1" 
-                                                        />
+                                                        <span className="text-sm text-gray-500 dark:text-gray-400">شماره فاکتور</span>
+                                                        <p className="font-bold font-mono text-indigo-600 dark:text-indigo-400">{invoice.id}</p>
                                                     </div>
-                                                    <div>
-                                                        <label className="block text-xs text-gray-500 dark:text-gray-400">قیمت فروش</label>
-                                                        <input 
-                                                            type="text" 
-                                                            value={formatNumberWithCommas(item.sale_price)} 
-                                                            onChange={e => handlePriceChange(customerId, item.id, e.target.value)} 
-                                                            className="w-full bg-white dark:bg-gray-600 p-1 rounded-md text-center mt-1" 
-                                                        />
-                                                    </div>
-                                                    <div className="col-span-2 mt-2 pt-2 border-t dark:border-gray-600">
-                                                        <span className="text-xs text-gray-500 dark:text-gray-400">مبلغ کل</span>
-                                                        <p className="font-semibold">{formatCurrency(item.subtotal)} تومان</p>
+                                                    <div className="text-left">
+                                                        <span className="text-sm text-gray-500 dark:text-gray-400">تاریخ</span>
+                                                        <p className="font-semibold">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</p>
                                                     </div>
                                                 </div>
+                                                <div className="mb-3">
+                                                    <span className="text-sm text-gray-500 dark:text-gray-400">مشتری</span>
+                                                    <p className="font-semibold">{invoice.customer?.fullname || 'نامشخص'}</p>
+                                                </div>
+                                                <div className="mb-4">
+                                                    <span className="text-sm text-gray-500 dark:text-gray-400">مبلغ کل</span>
+                                                    <p className="font-bold text-lg">{formatCurrency(invoice.totalamount)} تومان</p>
+                                                </div>
+                                                <div className="flex justify-end gap-4 border-t dark:border-gray-600 pt-3">
+                                                    <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold text-sm">ویرایش</button>
+                                                    <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold text-sm">چاپ</button>
+                                                </div>
                                             </div>
-                                        ))}
-                                    </div>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">تخفیف (تومان)</label>
-                                            <input
-                                                type="text"
-                                                placeholder="0"
-                                                value={formatNumberWithCommas(invoiceData.discount)}
-                                                onChange={e => handlePreInvoiceMetaChange(customerId, 'discount', e.target.value)}
-                                                className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">هزینه ارسال (تومان)</label>
-                                            <input
-                                                type="text"
-                                                placeholder="0"
-                                                value={formatNumberWithCommas(invoiceData.shipping)}
-                                                onChange={e => handlePreInvoiceMetaChange(customerId, 'shipping', e.target.value)}
-                                                className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md text-center"
-                                            />
-                                        </div>
+                                        )) : (
+                                            <p className="p-8 text-center text-gray-500">هیچ فاکتوری یافت نشد.</p>
+                                        )}
                                     </div>
 
-                                    <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-end gap-3">
-                                        <button onClick={() => handleOpenPrintPreInvoiceModal(invoiceData)} className="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-5 rounded-lg">چاپ پیش‌فاکتور</button>
-                                        <button onClick={() => handleInitiatePayment(customerId)} disabled={isSubmitting === customerId} className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg disabled:bg-green-400">ثبت و تخصیص پرداخت</button>
-                                    </div>
-                                </div>
-                            )) : <p className="text-center p-12 bg-white dark:bg-gray-800 rounded-lg shadow">هیچ فاکتوری برای صدور وجود ندارد.</p>}
-                        </div>
-                    )}
-
-                    {!isLoading && !error && activeTab === 'history' && (
-                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                            {/* Desktop Table */}
-                            <div className="hidden md:block overflow-x-auto">
-                                <table className="w-full text-right min-w-[600px]">
-                                    <thead><tr className="border-b dark:border-gray-700"><th className="p-3 font-semibold">شماره فاکتور</th><th className="p-3 font-semibold">مشتری</th><th className="p-3 font-semibold">تاریخ</th><th className="p-3 font-semibold">مبلغ کل</th><th className="p-3 font-semibold">عملیات</th></tr></thead>
-                                    <tbody>
-                                        {invoices.map(invoice => (
-                                            <tr key={invoice.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                                <td className="p-3 font-mono">{invoice.id}</td>
-                                                <td className="p-3">{invoice.customer?.fullname || 'نامشخص'}</td>
-                                                <td className="p-3">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</td>
-                                                <td className="p-3 font-semibold">{formatCurrency(invoice.totalamount)} تومان</td>
-                                                <td className="p-3 space-x-4 space-x-reverse">
-                                                    <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold">ویرایش</button>
-                                                    <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold">چاپ</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                             {/* Mobile Card View */}
-                            <div className="md:hidden space-y-4">
-                                {invoices.map(invoice => (
-                                    <div key={invoice.id} className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg shadow">
-                                        <div className="flex justify-between items-center mb-2 pb-2 border-b dark:border-gray-600">
-                                            <div>
-                                                <span className="text-sm text-gray-500 dark:text-gray-400">شماره فاکتور</span>
-                                                <p className="font-bold font-mono text-indigo-600 dark:text-indigo-400">{invoice.id}</p>
-                                            </div>
-                                            <div className="text-left">
-                                                <span className="text-sm text-gray-500 dark:text-gray-400">تاریخ</span>
-                                                <p className="font-semibold">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</p>
-                                            </div>
+                                    {/* --- Pagination Controls --- */}
+                                    {totalInvoices > 0 && (
+                                        <div className="flex justify-between items-center mt-4 p-2">
+                                            <button 
+                                                onClick={prevPage} 
+                                                disabled={currentPage === 0 || isLoading}
+                                                className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                قبلی
+                                            </button>
+                                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                                                صفحه {currentPage + 1} از {Math.ceil(totalInvoices / invoicesPerPage) || 1}
+                                            </span>
+                                            <button 
+                                                onClick={nextPage} 
+                                                disabled={(currentPage + 1) * invoicesPerPage >= totalInvoices || isLoading}
+                                                className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                بعدی
+                                            </button>
                                         </div>
-                                        <div className="mb-3">
-                                            <span className="text-sm text-gray-500 dark:text-gray-400">مشتری</span>
-                                            <p className="font-semibold">{invoice.customer?.fullname || 'نامشخص'}</p>
-                                        </div>
-                                        <div className="mb-4">
-                                            <span className="text-sm text-gray-500 dark:text-gray-400">مبلغ کل</span>
-                                            <p className="font-bold text-lg">{formatCurrency(invoice.totalamount)} تومان</p>
-                                        </div>
-                                        <div className="flex justify-end gap-4 border-t dark:border-gray-600 pt-3">
-                                            <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold text-sm">ویرایش</button>
-                                            <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold text-sm">چاپ</button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* --- Pagination Controls --- */}
-                            <div className="flex justify-between items-center mt-4 p-2">
-                                <button 
-                                    onClick={prevPage} 
-                                    disabled={currentPage === 0 || isLoading}
-                                    className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    قبلی
-                                </button>
-                                <span className="text-sm text-gray-700 dark:text-gray-300">
-                                    صفحه {currentPage + 1} از {Math.ceil(totalInvoices / invoicesPerPage) || 1}
-                                </span>
-                                <button 
-                                    onClick={nextPage} 
-                                    disabled={(currentPage + 1) * invoicesPerPage >= totalInvoices || isLoading}
-                                    className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    بعدی
-                                </button>
-                            </div>
+                                    )}
+                                </>
+                            )}
                         </div>
                     )}
                     
@@ -1500,4 +1651,3 @@
     </script>
 </body>
 </html>
-
