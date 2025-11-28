@@ -436,7 +436,32 @@
             const [isSubmitting, setIsSubmitting] = React.useState(false);
 
             React.useEffect(() => {
-                setInvoice(initialInvoice);
+                if (initialInvoice) {
+                    const loadedInvoice = JSON.parse(JSON.stringify(initialInvoice));
+                    
+                    // Legacy Data Handling:
+                    // If invoice has a total shipping price but items have 0/null shipping,
+                    // we distribute the total shipping among the items to prevent data loss on edit.
+                    const totalHeaderShipping = loadedInvoice.totalshippingprice || 0;
+                    const totalItemShipping = loadedInvoice.demandinvoicedetail.reduce((sum, item) => sum + (item.shippingprice || 0), 0);
+
+                    if (totalHeaderShipping > 0 && totalItemShipping === 0 && loadedInvoice.demandinvoicedetail.length > 0) {
+                        const count = loadedInvoice.demandinvoicedetail.length;
+                        const baseShipping = Math.floor(totalHeaderShipping / count);
+                        let remainder = totalHeaderShipping % count;
+
+                        loadedInvoice.demandinvoicedetail.forEach(detail => {
+                            let alloc = baseShipping;
+                            if (remainder > 0) {
+                                alloc += 1;
+                                remainder--;
+                            }
+                            detail.shippingprice = alloc;
+                        });
+                    }
+                    
+                    setInvoice(loadedInvoice);
+                }
             }, [initialInvoice]);
 
             if (!invoice) return null;
@@ -812,7 +837,7 @@
                     description: item.product.title,
                     quantity: item.approved_supply_quantity,
                     unitPrice: item.sale_price,
-                    shipping: item.shipping_price || 0,
+                    // No individual shipping here
                     total: item.subtotal
                 })),
                 subtotal,
@@ -936,7 +961,7 @@
                     description: detail.demand_item?.product?.title || 'محصول حذف شده',
                     quantity: detail.quantity,
                     unitPrice: detail.sales_price,
-                    shipping: detail.shippingprice || 0,
+                    // No individual shipping here either
                     total: detail.quantity * detail.sales_price,
                 })),
                 subtotal,
@@ -1003,6 +1028,8 @@
             const [invoicesPerPage] = React.useState(10);
             const [totalInvoices, setTotalInvoices] = React.useState(0);
             const [searchQuery, setSearchQuery] = React.useState('');
+            // --- NEW: Filter State ---
+            const [showShippingOnly, setShowShippingOnly] = React.useState(false);
 
             const fetchPendingData = async () => {
                 setIsLoading(true);
@@ -1068,8 +1095,6 @@
                     const to = from + invoicesPerPage - 1;
 
                     // Dynamically build the query based on search
-                    // If searching by customer name, we need !inner join to filter.
-                    // If no search, we use standard left join to ensure we get results even if customer data is missing (though unlikely in this schema).
                     let queryBuilder = supabaseClient.from('demandinvoice');
                     
                     // Base Select
@@ -1080,21 +1105,21 @@
 
                     // Smart Search Logic
                     if (searchQuery) {
-                        // Check if numeric -> assume searching by ID
                         if (!isNaN(searchQuery) && !isNaN(parseFloat(searchQuery))) {
-                            // Search by ID, keep standard join for customer
                              selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
                              queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).eq('id', searchQuery);
                         } else {
-                             // Search by Text -> assume Customer Name
-                             // Use !inner to filter rows based on the joined table condition
                              selectString += `, customer:customeruserid!inner(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
                              queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).ilike('customer.fullname', `%${searchQuery}%`);
                         }
                     } else {
-                        // No Search -> Standard fetch
                         selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
                         queryBuilder = queryBuilder.select(selectString, { count: 'exact' });
+                    }
+
+                    // --- NEW: Filter Logic ---
+                    if (showShippingOnly) {
+                        queryBuilder = queryBuilder.gt('totalshippingprice', 0);
                     }
 
                     const { data: historicalData, error: historicalError, count } = await queryBuilder
@@ -1122,11 +1147,12 @@
             }, []);
             
             // Fetch historical data when the tab is switched to 'history' or when page/search changes.
+            // --- UPDATED DEPENDENCY ARRAY ---
             React.useEffect(() => {
                 if(activeTab === 'history') {
                     fetchHistoricalData();
                 }
-            }, [activeTab, currentPage, searchQuery]); // Added searchQuery dependency
+            }, [activeTab, currentPage, searchQuery, showShippingOnly]); 
             
             const refreshData = async () => {
                 if (activeTab === 'pending') {
@@ -1143,6 +1169,12 @@
             const handleSearchChange = (e) => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(0); // Reset to first page on search
+            };
+
+            // --- NEW: Filter Handler ---
+            const handleFilterChange = (e) => {
+                setShowShippingOnly(e.target.checked);
+                setCurrentPage(0); // Reset pagination
             };
             
             const recalculatePreInvoiceTotal = (invoice) => {
@@ -1507,25 +1539,41 @@
                         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                             
                             {/* --- Search Bar (MOVED OUTSIDE LOADING CHECK) --- */}
-                            <div className="mb-4">
-                                <label htmlFor="invoice-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">جستجو</label>
-                                <div className="relative">
+                            <div className="mb-4 space-y-3">
+                                <div>
+                                    <label htmlFor="invoice-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">جستجو</label>
+                                    <div className="relative">
+                                        <input
+                                            id="invoice-search"
+                                            type="text"
+                                            placeholder="جستجو بر اساس نام مشتری یا شماره فاکتور..."
+                                            value={searchQuery}
+                                            onChange={handleSearchChange}
+                                            className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                        {searchQuery && (
+                                            <button 
+                                                onClick={() => { setSearchQuery(''); setCurrentPage(0); }}
+                                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                            >
+                                                &times;
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* --- NEW: Filter Checkbox --- */}
+                                <div className="flex items-center">
                                     <input
-                                        id="invoice-search"
-                                        type="text"
-                                        placeholder="جستجو بر اساس نام مشتری یا شماره فاکتور..."
-                                        value={searchQuery}
-                                        onChange={handleSearchChange}
-                                        className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        id="shipping-filter"
+                                        type="checkbox"
+                                        checked={showShippingOnly}
+                                        onChange={handleFilterChange}
+                                        className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
                                     />
-                                    {searchQuery && (
-                                        <button 
-                                            onClick={() => { setSearchQuery(''); setCurrentPage(0); }}
-                                            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                                        >
-                                            &times;
-                                        </button>
-                                    )}
+                                    <label htmlFor="shipping-filter" className="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                                        فقط نمایش فاکتورهای دارای هزینه ارسال
+                                    </label>
                                 </div>
                             </div>
 
