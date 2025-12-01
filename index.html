@@ -121,11 +121,27 @@
                 width: 100%;
                 background: white;
                 color: black;
+                direction: rtl;
+            }
+            /* Reset modal styles for print */
+            .modal-content {
+                width: 100%;
+                max-width: none;
+                max-height: none;
+                padding: 0;
+                margin: 0;
+                box-shadow: none;
+                background: white !important;
+                color: black !important;
+            }
+            .modal-overlay {
+                background: white;
+                position: absolute;
             }
         }
     </style>
 </head>
-<body class="dark">
+<body class="dark text-gray-900 dark:text-gray-100">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -209,6 +225,36 @@
             }
             if(typeof value === 'number') return value;
             return Number(value.replace(/,/g, '')) || 0;
+        };
+
+        // New helper to fetch user balance
+        const fetchUserBalance = async (userId) => {
+            if (!userId) return 0;
+            try {
+                // 1. Get Total Payments (Credits)
+                const { data: transactions, error: txError } = await supabaseClient
+                    .from('usertransaction')
+                    .select('amount')
+                    .eq('userid', userId);
+                
+                if (txError) throw txError;
+                const totalPaid = transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+
+                // 2. Get Total Invoiced Amount (Debits)
+                const { data: invoices, error: invError } = await supabaseClient
+                    .from('demandinvoice')
+                    .select('totalamount')
+                    .eq('customeruserid', userId);
+
+                if (invError) throw invError;
+                const totalInvoiced = invoices.reduce((sum, inv) => sum + (inv.totalamount || 0), 0);
+                
+                // 3. Calculate Balance: (Money In) - (Money Owed)
+                return totalPaid - totalInvoiced;
+            } catch (err) {
+                console.error('Exception fetching balance:', err);
+                return 0;
+            }
         };
         
         const Modal = ({ isOpen, onClose, title, children, showHeader = true }) => {
@@ -637,6 +683,7 @@
             shipping,
             totalAmount,
             note,
+            customerBalance,
             formatCurrencyForPrint
         }) => {
             return (
@@ -727,6 +774,12 @@
                                     <span>جمع کل:</span>
                                     <span>{formatCurrencyForPrint(totalAmount)}</span>
                                 </div>
+                                {typeof customerBalance === 'number' && (
+                                    <div className="flex justify-between gap-4 font-bold text-sm md:text-base border-t border-dashed pt-2 mt-2 text-indigo-800">
+                                        <span>مانده حساب جاری:</span>
+                                        <span>{formatCurrencyForPrint(customerBalance)}</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </footer>
@@ -734,7 +787,7 @@
             )
         };
 
-        const PrintablePreInvoice = ({ preInvoiceData, onClose }) => {
+        const PrintablePreInvoice = ({ preInvoiceData, onClose, customerBalance }) => {
             const [sellerProfile, setSellerProfile] = React.useState(null);
             const [allSellers, setAllSellers] = React.useState([]);
             const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
@@ -821,6 +874,7 @@
                 shipping: totalShipping,
                 totalAmount: preInvoiceData.totalAmount,
                 note: null,
+                customerBalance,
                 formatCurrencyForPrint
             };
 
@@ -852,7 +906,7 @@
             );
         };
 
-        const PrintableInvoice = ({ invoice, onClose }) => {
+        const PrintableInvoice = ({ invoice, onClose, customerBalance }) => {
             const [sellerProfile, setSellerProfile] = React.useState(null);
             const [allSellers, setAllSellers] = React.useState([]);
             const [selectedSellerId, setSelectedSellerId] = React.useState(APP_CONFIG.DEFAULT_SELLER_ID);
@@ -943,6 +997,7 @@
                 shipping: invoice.totalshippingprice,
                 totalAmount: invoice.totalamount,
                 note: invoice.note,
+                customerBalance,
                 formatCurrencyForPrint
             };
             
@@ -987,6 +1042,8 @@
         const InvoiceManagement = () => {
             const [preInvoices, setPreInvoices] = React.useState({});
             const [invoices, setInvoices] = React.useState([]);
+            const [allFilteredInvoices, setAllFilteredInvoices] = React.useState([]); // New: Store all invoices for client-side pagination
+            const [transactions, setTransactions] = React.useState([]); 
             const [isLoading, setIsLoading] = React.useState(true);
             const [error, setError] = React.useState('');
             const [isSubmitting, setIsSubmitting] = React.useState(null);
@@ -995,15 +1052,117 @@
             const [editingInvoice, setEditingInvoice] = React.useState(null);
             const [printingInvoice, setPrintingInvoice] = React.useState(null);
             const [printingPreInvoice, setPrintingPreInvoice] = React.useState(null);
+            const [customerBalances, setCustomerBalances] = React.useState({}); 
             const { addToast } = useToasts();
             
             // --- Search & Pagination State ---
             const [currentPage, setCurrentPage] = React.useState(0);
             const [invoicesPerPage] = React.useState(10);
             const [totalInvoices, setTotalInvoices] = React.useState(0);
+            const [totalTransactions, setTotalTransactions] = React.useState(0);
             const [searchQuery, setSearchQuery] = React.useState('');
             // --- Filter State ---
             const [showShippingOnly, setShowShippingOnly] = React.useState(false);
+            const [showNonZeroBalanceOnly, setShowNonZeroBalanceOnly] = React.useState(false);
+
+            // Helper: Fetch Global Balances efficiently
+            // This fetches ALL transaction sums and ALL invoice sums to build a balance map in one go.
+            const fetchGlobalBalances = async () => {
+                try {
+                    // 1. Get all transactions (credits)
+                    const { data: allTx, error: txError } = await supabaseClient
+                        .from('usertransaction')
+                        .select('userid, amount');
+                    if (txError) throw txError;
+
+                    // 2. Get all invoice totals (debits)
+                    const { data: allInv, error: invError } = await supabaseClient
+                        .from('demandinvoice')
+                        .select('customeruserid, totalamount');
+                    if (invError) throw invError;
+
+                    // 3. Aggregate in memory
+                    const balanceMap = {};
+
+                    // Sum Credits
+                    allTx.forEach(tx => {
+                        if (!tx.userid) return;
+                        balanceMap[tx.userid] = (balanceMap[tx.userid] || 0) + (tx.amount || 0);
+                    });
+
+                    // Subtract Debits
+                    allInv.forEach(inv => {
+                        if (!inv.customeruserid) return;
+                        balanceMap[inv.customeruserid] = (balanceMap[inv.customeruserid] || 0) - (inv.totalamount || 0);
+                    });
+
+                    setCustomerBalances(balanceMap);
+                    return balanceMap;
+                } catch (err) {
+                    console.error("Error fetching global balances:", err);
+                    return {};
+                }
+            };
+
+            // Fetch balances for specific users (Legacy/Single page mode)
+            const fetchBalancesForUsers = async (userIds) => {
+                const uniqueIds = [...new Set(userIds)];
+                const missingIds = uniqueIds.filter(id => customerBalances[id] === undefined);
+                if (missingIds.length === 0) return;
+
+                const newBalances = {};
+                await Promise.all(missingIds.map(async (uid) => {
+                    const balance = await fetchUserBalance(uid);
+                    newBalances[uid] = balance;
+                }));
+                setCustomerBalances(prev => ({ ...prev, ...newBalances }));
+            };
+
+            // New: Fetch Transaction Data
+            const fetchTransactionData = async () => {
+                setIsLoading(true);
+                setError('');
+                try {
+                    const from = currentPage * invoicesPerPage;
+                    const to = from + invoicesPerPage - 1;
+
+                    let queryBuilder = supabaseClient.from('usertransaction')
+                        .select(`
+                            *,
+                            profile:userid(fullname),
+                            invoice:demandinvoiceid(id)
+                        `, { count: 'exact' });
+
+                    if (searchQuery) {
+                        if (!isNaN(searchQuery)) {
+                            // Assume searching for invoice ID
+                            queryBuilder = queryBuilder.eq('demandinvoiceid', searchQuery);
+                        } else {
+                            // Search by user name using !inner to filter joined table
+                            queryBuilder = supabaseClient.from('usertransaction')
+                                .select(`
+                                    *,
+                                    profile:userid!inner(fullname),
+                                    invoice:demandinvoiceid(id)
+                                `, { count: 'exact' })
+                                .ilike('profile.fullname', `%${searchQuery}%`);
+                        }
+                    }
+
+                    const { data, error, count } = await queryBuilder
+                        .order('createdat', { ascending: false })
+                        .range(from, to);
+
+                    if (error) throw error;
+                    setTransactions(data || []);
+                    setTotalTransactions(count || 0);
+                } catch (err) {
+                    console.error("Error fetching transactions:", err);
+                    setError(`خطا در بارگذاری تراکنش‌ها: ${err.message}`);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
 
             const fetchPendingData = async () => {
                 setIsLoading(true);
@@ -1052,6 +1211,13 @@
                         groupedByCustomer[customerId].items = Object.values(groupedByCustomer[customerId].items);
                     });
                     setPreInvoices(groupedByCustomer);
+
+                    // Fetch balances for these customers
+                    const customerIds = Object.keys(groupedByCustomer);
+                    if (customerIds.length > 0) {
+                        fetchBalancesForUsers(customerIds);
+                    }
+
                 } catch (err) {
                         console.error("Error fetching pending invoice data:", err);
                         setError(`خطا در بارگذاری اطلاعات آماده صدور: ${err.message}.`);
@@ -1065,40 +1231,117 @@
                 setIsLoading(true);
                 setError('');
                 try {
-                    const from = currentPage * invoicesPerPage;
-                    const to = from + invoicesPerPage - 1;
+                    // Branch 1: If filtering by Non-Zero Balance, we need GLOBAL data (Client-side pagination)
+                    if (showNonZeroBalanceOnly) {
+                        // 1. Fetch Global Balances First
+                        const balanceMap = await fetchGlobalBalances();
 
-                    let queryBuilder = supabaseClient.from('demandinvoice');
-                    
-                    let selectString = `
-                            *, 
-                            demandinvoicedetail(*, profiles:supplieruserid(fullname), demand_item:demand_item_id(product(title)), location:locationid(postalcode))
-                    `;
+                        // 2. Fetch ALL Invoices (Limit 1000 for safety, or remove limit if dataset small)
+                        let queryBuilder = supabaseClient.from('demandinvoice')
+                            .select(`
+                                *, 
+                                demandinvoicedetail(*, profiles:supplieruserid(fullname), demand_item:demand_item_id(product(title)), location:locationid(postalcode)),
+                                customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))
+                            `)
+                            .order('createdat', { ascending: false })
+                            .limit(1000); 
 
-                    if (searchQuery) {
-                        if (!isNaN(searchQuery) && !isNaN(parseFloat(searchQuery))) {
-                             selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
-                             queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).eq('id', searchQuery);
-                        } else {
-                             selectString += `, customer:customeruserid!inner(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
-                             queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).ilike('customer.fullname', `%${searchQuery}%`);
+                        if (searchQuery) {
+                             if (!isNaN(searchQuery) && !isNaN(parseFloat(searchQuery))) {
+                                 queryBuilder = queryBuilder.eq('id', searchQuery);
+                             } else {
+                                 // Note: filtering on joined table is tricky without !inner, 
+                                 // but here we fetched customer object, so we might filter in memory if needed,
+                                 // or use the inner join syntax. Let's use inner join for search accuracy.
+                                 queryBuilder = supabaseClient.from('demandinvoice')
+                                    .select(`
+                                        *, 
+                                        demandinvoicedetail(*, profiles:supplieruserid(fullname), demand_item:demand_item_id(product(title)), location:locationid(postalcode)),
+                                        customer:customeruserid!inner(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))
+                                    `)
+                                    .order('createdat', { ascending: false })
+                                    .ilike('customer.fullname', `%${searchQuery}%`)
+                                    .limit(1000);
+                             }
                         }
-                    } else {
-                        selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
-                        queryBuilder = queryBuilder.select(selectString, { count: 'exact' });
-                    }
 
-                    if (showShippingOnly) {
-                        queryBuilder = queryBuilder.gt('totalshippingprice', 0);
-                    }
+                        if (showShippingOnly) {
+                            queryBuilder = queryBuilder.gt('totalshippingprice', 0);
+                        }
 
-                    const { data: historicalData, error: historicalError, count } = await queryBuilder
-                        .order('createdat', { ascending: false })
-                        .range(from, to);
+                        const { data: allData, error: loadError } = await queryBuilder;
+                        if (loadError) throw loadError;
+
+                        // 3. Filter In Memory based on Balance Map AND Unique Customer
+                        const seenCustomers = new Set();
+                        const uniqueFiltered = [];
+
+                        (allData || []).forEach(inv => {
+                            const customerId = inv.customeruserid;
+                            const bal = balanceMap[customerId];
+                            
+                            // Check if balance is non-zero
+                            if (bal !== 0 && bal !== undefined) {
+                                // Check if we haven't seen this customer yet
+                                if (!seenCustomers.has(customerId)) {
+                                    seenCustomers.add(customerId);
+                                    uniqueFiltered.push(inv);
+                                }
+                            }
+                        });
+
+                        setAllFilteredInvoices(uniqueFiltered);
+                        setTotalInvoices(uniqueFiltered.length);
                         
-                    if (historicalError) throw historicalError;
-                    setInvoices(historicalData || []);
-                    setTotalInvoices(count || 0);
+                        // 4. Slice for current page
+                        const from = currentPage * invoicesPerPage;
+                        const to = from + invoicesPerPage;
+                        setInvoices(uniqueFiltered.slice(from, to));
+
+                    } 
+                    // Branch 2: Standard Server-Side Pagination (Original Logic)
+                    else {
+                        const from = currentPage * invoicesPerPage;
+                        const to = from + invoicesPerPage - 1;
+
+                        let queryBuilder = supabaseClient.from('demandinvoice');
+                        
+                        let selectString = `
+                                *, 
+                                demandinvoicedetail(*, profiles:supplieruserid(fullname), demand_item:demand_item_id(product(title)), location:locationid(postalcode))
+                        `;
+
+                        if (searchQuery) {
+                            if (!isNaN(searchQuery) && !isNaN(parseFloat(searchQuery))) {
+                                selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
+                                queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).eq('id', searchQuery);
+                            } else {
+                                selectString += `, customer:customeruserid!inner(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
+                                queryBuilder = queryBuilder.select(selectString, { count: 'exact' }).ilike('customer.fullname', `%${searchQuery}%`);
+                            }
+                        } else {
+                            selectString += `, customer:customeruserid(id, fullname, national_id, mobile, location:locationid(postalcode, address, plaque))`;
+                            queryBuilder = queryBuilder.select(selectString, { count: 'exact' });
+                        }
+
+                        if (showShippingOnly) {
+                            queryBuilder = queryBuilder.gt('totalshippingprice', 0);
+                        }
+
+                        const { data: historicalData, error: historicalError, count } = await queryBuilder
+                            .order('createdat', { ascending: false })
+                            .range(from, to);
+                            
+                        if (historicalError) throw historicalError;
+                        setInvoices(historicalData || []);
+                        setTotalInvoices(count || 0);
+
+                        // Fetch balances for just these visible users
+                        if (historicalData && historicalData.length > 0) {
+                            const customerIds = historicalData.map(inv => inv.customeruserid).filter(Boolean);
+                            fetchBalancesForUsers(customerIds);
+                        }
+                    }
 
                 } catch (err) {
                     console.error("Error fetching historical invoice data:", err);
@@ -1112,18 +1355,37 @@
             React.useEffect(() => {
                 if (activeTab === 'pending') {
                     fetchPendingData();
+                } else if (activeTab === 'transactions') {
+                    fetchTransactionData();
                 }
             }, []);
             
+            // Re-run fetch when filters change
             React.useEffect(() => {
                 if(activeTab === 'history') {
-                    fetchHistoricalData();
+                    // If we are in "Global Filter Mode" and just changing pages, we don't need to re-fetch DB, just re-slice
+                    if (showNonZeroBalanceOnly && allFilteredInvoices.length > 0 && searchQuery === '') {
+                         // Optimization: If we already have data and are just paging, slice locally
+                         // However, if filters changed (like showShippingOnly), we need to re-fetch.
+                         // For simplicity, let's re-fetch or handle slicing in the render effect? 
+                         // Actually, putting it in fetchHistoricalData is safer to ensure sync.
+                         fetchHistoricalData();
+                    } else {
+                        fetchHistoricalData();
+                    }
+                } else if (activeTab === 'transactions') {
+                    fetchTransactionData();
                 }
-            }, [activeTab, currentPage, searchQuery, showShippingOnly]); 
+            }, [activeTab, currentPage, searchQuery, showShippingOnly, showNonZeroBalanceOnly]); 
             
             const refreshData = async () => {
+                setCustomerBalances({}); // Reset balances on full refresh
+                setAllFilteredInvoices([]);
                 if (activeTab === 'pending') {
                     await fetchPendingData();
+                } else if (activeTab === 'transactions') {
+                    if (currentPage !== 0) setCurrentPage(0);
+                    else await fetchTransactionData();
                 } else {
                      if(currentPage !== 0) {
                         setCurrentPage(0); 
@@ -1141,6 +1403,11 @@
             const handleFilterChange = (e) => {
                 setShowShippingOnly(e.target.checked);
                 setCurrentPage(0);
+            };
+            
+            const handleBalanceFilterChange = (e) => {
+                setShowNonZeroBalanceOnly(e.target.checked);
+                setCurrentPage(0); // Reset to page 1 when mode changes
             };
             
             const recalculatePreInvoiceTotal = (invoice) => {
@@ -1332,9 +1599,24 @@
 
             const handleCloseEditModal = () => setEditingInvoice(null);
             
-            const handleOpenPrintModal = (invoice) => setPrintingInvoice(invoice);
+            // Pass balance to print modals
+            const handleOpenPrintModal = async (invoice) => {
+                // Ensure we have fresh balance
+                if (invoice.customeruserid) {
+                    const balance = await fetchUserBalance(invoice.customeruserid);
+                    setCustomerBalances(prev => ({...prev, [invoice.customeruserid]: balance}));
+                }
+                setPrintingInvoice(invoice);
+            };
             const handleClosePrintModal = () => setPrintingInvoice(null);
-            const handleOpenPrintPreInvoiceModal = (data) => setPrintingPreInvoice(data);
+
+            const handleOpenPrintPreInvoiceModal = async (data) => {
+                if (data.customerId) {
+                     const balance = await fetchUserBalance(data.customerId);
+                     setCustomerBalances(prev => ({...prev, [data.customerId]: balance}));
+                }
+                setPrintingPreInvoice(data);
+            };
             const handleClosePrintPreInvoiceModal = () => setPrintingPreInvoice(null);
 
             const handleSaveInvoice = () => {
@@ -1352,7 +1634,8 @@
             };
             
             const nextPage = () => {
-                if ((currentPage + 1) * invoicesPerPage < totalInvoices) {
+                const total = activeTab === 'transactions' ? totalTransactions : totalInvoices;
+                if ((currentPage + 1) * invoicesPerPage < total) {
                     setCurrentPage(currentPage + 1);
                 }
             };
@@ -1377,23 +1660,48 @@
                     </div>
 
                     <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-                        <nav className="-mb-px flex space-x-4 space-x-reverse">
-                            <button onClick={() => handleTabChange('pending')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'pending' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>آماده صدور</button>
-                            <button onClick={() => handleTabChange('history')} className={`px-4 py-2 text-sm font-semibold border-b-2 ${activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه فاکتورها</button>
+                        <nav className="-mb-px flex space-x-4 space-x-reverse overflow-x-auto">
+                            <button onClick={() => handleTabChange('pending')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'pending' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>آماده صدور</button>
+                            <button onClick={() => handleTabChange('history')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه فاکتورها</button>
+                            <button onClick={() => handleTabChange('transactions')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'transactions' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه تراکنش‌ها (Allocation Log)</button>
                         </nav>
                     </div>
                     
                     {/* Content Area */}
                     {activeTab === 'pending' && (
                         <>
+                            {/* Filter for Pending Tab */}
+                            <div className="mb-4 flex items-center">
+                                <input
+                                    id="balance-filter-pending"
+                                    type="checkbox"
+                                    checked={showNonZeroBalanceOnly}
+                                    onChange={handleBalanceFilterChange}
+                                    className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                                <label htmlFor="balance-filter-pending" className="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                                    فقط نمایش مشتریان با مانده حساب غیر صفر
+                                </label>
+                            </div>
+
                             {isLoading && <div className="spinner"></div>}
                             {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
                             {!isLoading && !error && (
                                 <div className="space-y-8">
-                                    {Object.keys(preInvoices).length > 0 ? Object.entries(preInvoices).map(([customerId, invoiceData]) => (
+                                    {Object.keys(preInvoices).length > 0 ? 
+                                        Object.entries(preInvoices)
+                                        .filter(([customerId]) => {
+                                            if (!showNonZeroBalanceOnly) return true;
+                                            const balance = customerBalances[customerId];
+                                            return balance !== 0 && balance !== undefined;
+                                        })
+                                        .map(([customerId, invoiceData]) => (
                                         <div key={customerId} className="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
                                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
-                                                <div><h2 className="text-lg md:text-xl font-bold">پیش‌فاکتور برای: <span className="font-mono">{invoiceData.customerName}</span></h2></div>
+                                                <div>
+                                                    <h2 className="text-lg md:text-xl font-bold">پیش‌فاکتور برای: <span className="font-mono">{invoiceData.customerName}</span></h2>
+                                                    <p className="text-sm mt-1 text-gray-500">مانده حساب: <span className={`font-bold ${customerBalances[customerId] < 0 ? 'text-red-500' : 'text-green-500'}`}>{formatCurrency(customerBalances[customerId] || 0)} تومان</span></p>
+                                                </div>
                                                 <div className="mt-4 sm:mt-0 text-left w-full sm:w-auto"><p className="text-sm text-gray-600 dark:text-gray-400">مبلغ کل:</p><p className="text-xl md:text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatCurrency(invoiceData.totalAmount)} تومان</p></div>
                                             </div>
                                             
@@ -1524,17 +1832,31 @@
                                     </div>
                                 </div>
                                 
-                                <div className="flex items-center">
-                                    <input
-                                        id="shipping-filter"
-                                        type="checkbox"
-                                        checked={showShippingOnly}
-                                        onChange={handleFilterChange}
-                                        className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                                    />
-                                    <label htmlFor="shipping-filter" className="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
-                                        فقط نمایش فاکتورهای دارای هزینه ارسال
-                                    </label>
+                                <div className="flex flex-col sm:flex-row gap-4">
+                                    <div className="flex items-center">
+                                        <input
+                                            id="shipping-filter"
+                                            type="checkbox"
+                                            checked={showShippingOnly}
+                                            onChange={handleFilterChange}
+                                            className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                                        />
+                                        <label htmlFor="shipping-filter" className="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                                            فقط نمایش فاکتورهای دارای هزینه ارسال
+                                        </label>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <input
+                                            id="balance-filter"
+                                            type="checkbox"
+                                            checked={showNonZeroBalanceOnly}
+                                            onChange={handleBalanceFilterChange}
+                                            className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                                        />
+                                        <label htmlFor="balance-filter" className="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                                            فقط نمایش مشتریان با مانده حساب غیر صفر (جستجو در کل)
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1547,14 +1869,20 @@
                                     {/* Desktop Table */}
                                     <div className="hidden md:block overflow-x-auto">
                                         <table className="w-full text-right min-w-[600px]">
-                                            <thead><tr className="border-b dark:border-gray-700"><th className="p-3 font-semibold">شماره فاکتور</th><th className="p-3 font-semibold">مشتری</th><th className="p-3 font-semibold">تاریخ</th><th className="p-3 font-semibold">مبلغ کل</th><th className="p-3 font-semibold">عملیات</th></tr></thead>
+                                            <thead><tr className="border-b dark:border-gray-700"><th className="p-3 font-semibold">شماره فاکتور</th><th className="p-3 font-semibold">مشتری</th><th className="p-3 font-semibold">تاریخ</th><th className="p-3 font-semibold">مبلغ کل</th><th className="p-3 font-semibold">مانده حساب</th><th className="p-3 font-semibold">عملیات</th></tr></thead>
                                             <tbody>
-                                                {invoices.length > 0 ? invoices.map(invoice => (
+                                                {invoices.length > 0 ? invoices
+                                                    // Note: Filter is now handled in fetchHistoricalData for History Tab
+                                                    // But we keep the render logic simple
+                                                    .map(invoice => (
                                                     <tr key={invoice.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                                         <td className="p-3 font-mono">{invoice.id}</td>
                                                         <td className="p-3">{invoice.customer?.fullname || 'نامشخص'}</td>
                                                         <td className="p-3">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</td>
                                                         <td className="p-3 font-semibold">{formatCurrency(invoice.totalamount)} تومان</td>
+                                                        <td className={`p-3 font-semibold ${customerBalances[invoice.customeruserid] < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                            {customerBalances[invoice.customeruserid] !== undefined ? `${formatCurrency(customerBalances[invoice.customeruserid])} تومان` : '...'}
+                                                        </td>
                                                         <td className="p-3 space-x-4 space-x-reverse">
                                                             <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold">ویرایش</button>
                                                             <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold">چاپ</button>
@@ -1562,7 +1890,7 @@
                                                     </tr>
                                                 )) : (
                                                     <tr>
-                                                        <td colSpan="5" className="p-8 text-center text-gray-500">هیچ فاکتوری یافت نشد.</td>
+                                                        <td colSpan="6" className="p-8 text-center text-gray-500">هیچ فاکتوری یافت نشد.</td>
                                                     </tr>
                                                 )}
                                             </tbody>
@@ -1571,7 +1899,8 @@
 
                                     {/* Mobile Card View */}
                                     <div className="md:hidden space-y-4">
-                                        {invoices.length > 0 ? invoices.map(invoice => (
+                                        {invoices.length > 0 ? invoices
+                                            .map(invoice => (
                                             <div key={invoice.id} className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg shadow">
                                                 <div className="flex justify-between items-center mb-2 pb-2 border-b dark:border-gray-600">
                                                     <div>
@@ -1586,6 +1915,12 @@
                                                 <div className="mb-3">
                                                     <span className="text-sm text-gray-500 dark:text-gray-400">مشتری</span>
                                                     <p className="font-semibold">{invoice.customer?.fullname || 'نامشخص'}</p>
+                                                </div>
+                                                <div className="mb-3">
+                                                    <span className="text-sm text-gray-500 dark:text-gray-400">مانده حساب</span>
+                                                    <p className={`font-semibold ${customerBalances[invoice.customeruserid] < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                         {customerBalances[invoice.customeruserid] !== undefined ? `${formatCurrency(customerBalances[invoice.customeruserid])} تومان` : '...'}
+                                                    </p>
                                                 </div>
                                                 <div className="mb-4">
                                                     <span className="text-sm text-gray-500 dark:text-gray-400">مبلغ کل</span>
@@ -1627,6 +1962,98 @@
                             )}
                         </div>
                     )}
+
+                    {/* New Transaction Log Tab Content */}
+                    {activeTab === 'transactions' && (
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                            <div className="mb-4">
+                                <label htmlFor="trans-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">جستجو تراکنش</label>
+                                <div className="relative">
+                                    <input
+                                        id="trans-search"
+                                        type="text"
+                                        placeholder="جستجو بر اساس نام کاربر یا شماره فاکتور..."
+                                        value={searchQuery}
+                                        onChange={handleSearchChange}
+                                        className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                    />
+                                    {searchQuery && (
+                                        <button 
+                                            onClick={() => { setSearchQuery(''); setCurrentPage(0); }}
+                                            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                        >
+                                            &times;
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {isLoading && <div className="spinner"></div>}
+                            {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
+
+                            {!isLoading && !error && (
+                                <>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-right min-w-[600px]">
+                                            <thead>
+                                                <tr className="border-b dark:border-gray-700">
+                                                    <th className="p-3 font-semibold">شناسه</th>
+                                                    <th className="p-3 font-semibold">کاربر / تامین‌کننده</th>
+                                                    <th className="p-3 font-semibold">نوع</th>
+                                                    <th className="p-3 font-semibold">مبلغ</th>
+                                                    <th className="p-3 font-semibold">شماره فاکتور</th>
+                                                    <th className="p-3 font-semibold">تاریخ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {transactions.length > 0 ? transactions.map(tx => (
+                                                    <tr key={tx.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                        <td className="p-3 font-mono text-sm">{tx.id}</td>
+                                                        <td className="p-3 font-medium">{tx.profile?.fullname || 'نامشخص'}</td>
+                                                        <td className="p-3 text-sm text-gray-500">
+                                                            {tx.transactiontypeid === 1 ? 'دریافت از مشتری' : 
+                                                             tx.transactiontypeid === 2 ? 'پرداخت به تامین‌کننده' : 'تراکنش'}
+                                                        </td>
+                                                        <td className={`p-3 font-bold ${tx.amount > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} dir="ltr">
+                                                            {formatCurrency(tx.amount)}
+                                                        </td>
+                                                        <td className="p-3 font-mono">{tx.invoice?.id || '-'}</td>
+                                                        <td className="p-3 text-sm">{new Date(tx.createdat).toLocaleDateString('fa-IR')}</td>
+                                                    </tr>
+                                                )) : (
+                                                    <tr>
+                                                        <td colSpan="6" className="p-8 text-center text-gray-500">هیچ تراکنشی یافت نشد.</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {/* Pagination for transactions */}
+                                    {totalTransactions > 0 && (
+                                        <div className="flex justify-between items-center mt-4 p-2">
+                                            <button 
+                                                onClick={prevPage} 
+                                                disabled={currentPage === 0 || isLoading}
+                                                className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                قبلی
+                                            </button>
+                                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                                                صفحه {currentPage + 1} از {Math.ceil(totalTransactions / invoicesPerPage) || 1}
+                                            </span>
+                                            <button 
+                                                onClick={nextPage} 
+                                                disabled={(currentPage + 1) * invoicesPerPage >= totalTransactions || isLoading}
+                                                className="bg-gray-200 dark:bg-gray-600 py-2 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                بعدی
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
                     
                     {allocationModalState.isOpen && (
                         <PaymentAllocationModal 
@@ -1637,8 +2064,8 @@
                         />
                     )}
                     {editingInvoice && <EditInvoiceModal isOpen={!!editingInvoice} onClose={handleCloseEditModal} onSave={handleSaveInvoice} invoice={editingInvoice} addToast={addToast} />}
-                    {printingInvoice && <PrintableInvoice invoice={printingInvoice} onClose={handleClosePrintModal} />}
-                    {printingPreInvoice && <PrintablePreInvoice preInvoiceData={printingPreInvoice} onClose={handleClosePrintPreInvoiceModal} />}
+                    {printingInvoice && <PrintableInvoice invoice={printingInvoice} onClose={handleClosePrintModal} customerBalance={customerBalances[printingInvoice?.customeruserid]} />}
+                    {printingPreInvoice && <PrintablePreInvoice preInvoiceData={printingPreInvoice} onClose={handleClosePrintPreInvoiceModal} customerBalance={customerBalances[printingPreInvoice?.customerId]} />}
                 </div>
             );
         };
