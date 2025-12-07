@@ -104,41 +104,64 @@
             to { transform: translateX(0); opacity: 1; }
         }
 
-        /* Print Styles */
+        /* Print Styles - OPTIMIZED FOR FULL INVOICE DISPLAY */
         @media print {
+            /* 1. Hide the entire body content, except for necessary containers */
             body * {
-                visibility: hidden;
+                visibility: hidden !important;
+                overflow: hidden !important;
             }
             .print-options {
-                display: none;
+                display: none !important;
             }
-            #printable-invoice, #printable-invoice * {
-                visibility: visible;
+
+            /* 2. Overwrite modal positioning/sizing to ensure it covers the page */
+            .modal-overlay {
+                visibility: visible !important;
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                background: white !important;
+                display: block !important;
+                z-index: 9999 !important;
             }
-            #printable-invoice {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                background: white;
-                color: black;
-                direction: rtl;
-            }
-            /* Reset modal styles for print */
+            
             .modal-content {
-                width: 100%;
-                max-width: none;
-                max-height: none;
-                padding: 0;
-                margin: 0;
-                box-shadow: none;
+                position: static !important;
+                width: 100% !important;
+                max-width: none !important;
+                max-height: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                box-shadow: none !important;
                 background: white !important;
                 color: black !important;
+                overflow: visible !important; /* Crucial: removes scrollbars/clipping */
+                transform: none !important; /* Removes scale transformation */
             }
-            .modal-overlay {
-                background: white;
-                position: absolute;
+
+            /* 3. Make the printable content visible and full-width */
+            #printable-invoice {
+                visibility: visible !important;
+                position: static !important;
+                width: 100% !important;
+                max-width: none !important;
+                min-height: 100vh !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                color: black !important;
+                direction: rtl;
+                overflow: visible !important;
             }
+            
+            /* 4. Ensure all children inside the invoice are visible */
+            #printable-invoice * {
+                visibility: visible !important;
+            }
+            
         }
     </style>
 </head>
@@ -274,6 +297,29 @@
                         {children}
                     </div>
                 </div>
+            );
+        };
+
+        // ==================================================
+        // NEW: ConfirmDeleteModal Component
+        // ==================================================
+        const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, invoice }) => {
+            if (!isOpen || !invoice) return null;
+            return (
+                <Modal isOpen={isOpen} onClose={onClose} title="تایید حذف فاکتور">
+                    <div className="text-right">
+                        <p className="mb-4 text-lg text-red-600 dark:text-red-400">
+                            آیا مطمئن هستید که می‌خواهید فاکتور شماره <span className="font-mono font-bold">{invoice.id}</span> مربوط به مشتری <span className="font-bold">{invoice.customer?.fullname || 'نامشخص'}</span> را حذف کنید؟
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            توجه: این اقدام غیرقابل بازگشت است و فاکتور و جزئیات آن حذف خواهند شد. همچنین تراکنش‌های مرتبط با این فاکتور نیز حذف می‌شوند.
+                        </p>
+                    </div>
+                    <div className="flex justify-end gap-4 mt-6">
+                        <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg font-semibold">انصراف</button>
+                        <button onClick={onConfirm} className="bg-red-600 text-white py-2 px-5 rounded-lg font-semibold hover:bg-red-700">حذف فاکتور</button>
+                    </div>
+                </Modal>
             );
         };
 
@@ -1191,7 +1237,8 @@
             const [printingInvoice, setPrintingInvoice] = React.useState(null);
             const [printingPreInvoice, setPrintingPreInvoice] = React.useState(null);
             const [customerBalances, setCustomerBalances] = React.useState({}); 
-            const [statementModalState, setStatementModalState] = React.useState({ isOpen: false, customerId: null, customerName: '' }); // NEW: Statement State
+            const [statementModalState, setStatementModalState] = React.useState({ isOpen: false, customerId: null, customerName: '' }); 
+            const [deleteModalState, setDeleteModalState] = React.useState({ isOpen: false, invoiceToDelete: null }); // NEW: Delete state
             const { addToast } = useToasts();
             
             // --- Search & Pagination State ---
@@ -1768,6 +1815,62 @@
                 setStatementModalState({ isOpen: false, customerId: null, customerName: '' });
             };
 
+            // NEW: Delete Handlers
+            const handleOpenDeleteModal = (invoice) => {
+                setDeleteModalState({ isOpen: true, invoiceToDelete: invoice });
+            };
+
+            const handleCloseDeleteModal = () => {
+                setDeleteModalState({ isOpen: false, invoiceToDelete: null });
+            };
+
+            const handleDeleteInvoice = async () => {
+                const invoice = deleteModalState.invoiceToDelete;
+                if (!invoice) return;
+
+                handleCloseDeleteModal();
+                setIsLoading(true);
+                addToast('در حال حذف فاکتور و تراکنش‌های مرتبط...', 'warning');
+
+                try {
+                    // 1. Delete all related transactions (Customer Payment / Supplier Payouts)
+                    const { error: transactionError } = await supabaseClient
+                        .from('usertransaction')
+                        .delete()
+                        .eq('demandinvoiceid', invoice.id);
+                    
+                    if (transactionError) {
+                         console.warn("Could not delete related transactions:", transactionError.message);
+                         // Don't stop on transaction error, try to delete the invoice document itself
+                    }
+                    
+                    // 2. Delete invoice details (optional if cascade is set, but explicit is safer)
+                    const { error: detailError } = await supabaseClient
+                        .from('demandinvoicedetail')
+                        .delete()
+                        .eq('demandinvoiceid', invoice.id);
+                    
+                    if (detailError) throw detailError;
+
+                    // 3. Delete invoice header
+                    const { error: headerError } = await supabaseClient
+                        .from('demandinvoice')
+                        .delete()
+                        .eq('id', invoice.id);
+
+                    if (headerError) throw headerError;
+                    
+                    addToast(`فاکتور شماره ${invoice.id} با موفقیت حذف شد.`, 'success');
+                    await refreshData();
+
+                } catch (err) {
+                    console.error("Error deleting invoice:", err);
+                    addToast(`خطا در حذف فاکتور: ${err.message}`, 'error');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
 
             return (
                 <div className="p-4 md:p-6 lg:p-8 text-gray-900 dark:text-gray-100">
@@ -2003,25 +2106,26 @@
                                             <tbody>
                                                 {invoices.length > 0 ? invoices
                                                     .map(invoice => (
-                                                    <tr key={invoice.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                                        <td className="p-3 font-mono">{invoice.id}</td>
-                                                        <td className="p-3">{invoice.customer?.fullname || 'نامشخص'}</td>
-                                                        <td className="p-3">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</td>
-                                                        <td className="p-3 font-semibold" dir="ltr">{formatCurrency(invoice.totalamount)} تومان</td>
-                                                        <td className={`p-3 font-semibold ${customerBalances[invoice.customeruserid] < 0 ? 'text-red-400' : 'text-green-400'}`} dir="ltr">
-                                                            {customerBalances[invoice.customeruserid] !== undefined ? `${formatCurrency(customerBalances[invoice.customeruserid])} تومان` : '...'}
-                                                        </td>
-                                                        <td className="p-3 space-x-4 space-x-reverse whitespace-nowrap">
-                                                            <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold">ویرایش</button>
-                                                            <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold">چاپ</button>
-                                                            <button onClick={() => handleOpenStatementModal(invoice.customeruserid, invoice.customer?.fullname || 'نامشخص')} className="text-purple-500 hover:text-purple-700 font-semibold">صورتحساب</button>
-                                                        </td>
-                                                    </tr>
-                                                )) : (
-                                                    <tr>
-                                                        <td colSpan="6" className="p-8 text-center text-gray-500">هیچ فاکتوری یافت نشد.</td>
-                                                    </tr>
-                                                )}
+                                                        <tr key={invoice.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                            <td className="p-3 font-mono">{invoice.id}</td>
+                                                            <td className="p-3">{invoice.customer?.fullname || 'نامشخص'}</td>
+                                                            <td className="p-3">{new Date(invoice.createdat).toLocaleDateString('fa-IR')}</td>
+                                                            <td className="p-3 font-semibold" dir="ltr">{formatCurrency(invoice.totalamount)} تومان</td>
+                                                            <td className={`p-3 font-semibold ${customerBalances[invoice.customeruserid] < 0 ? 'text-red-400' : 'text-green-400'}`} dir="ltr">
+                                                                {customerBalances[invoice.customeruserid] !== undefined ? `${formatCurrency(customerBalances[invoice.customeruserid])} تومان` : '...'}
+                                                            </td>
+                                                            <td className="p-3 space-x-4 space-x-reverse whitespace-nowrap">
+                                                                <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold">ویرایش</button>
+                                                                <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold">چاپ</button>
+                                                                <button onClick={() => handleOpenStatementModal(invoice.customeruserid, invoice.customer?.fullname || 'نامشخص')} className="text-purple-500 hover:text-purple-700 font-semibold">صورتحساب</button>
+                                                                <button onClick={() => handleOpenDeleteModal(invoice)} className="text-red-500 hover:text-red-700 font-semibold">حذف</button> {/* NEW DELETE BUTTON */}
+                                                            </td>
+                                                        </tr>
+                                                    )) : (
+                                                        <tr>
+                                                            <td colSpan="6" className="p-8 text-center text-gray-500">هیچ فاکتوری یافت نشد.</td>
+                                                        </tr>
+                                                    )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -2048,7 +2152,7 @@
                                                 <div className="mb-3">
                                                     <span className="text-sm text-gray-500 dark:text-gray-400">مانده حساب</span>
                                                     <p className={`font-semibold ${customerBalances[invoice.customeruserid] < 0 ? 'text-red-400' : 'text-green-400'}`} dir="ltr">
-                                                            {customerBalances[invoice.customeruserid] !== undefined ? `${formatCurrency(customerBalances[invoice.customeruserid])} تومان` : '...'}
+                                                             {customerBalances[invoice.customeruserid] !== undefined ? `${formatCurrency(customerBalances[invoice.customeruserid])} تومان` : '...'}
                                                     </p>
                                                 </div>
                                                 <div className="mb-4">
@@ -2059,6 +2163,7 @@
                                                     <button onClick={() => handleOpenEditModal(invoice)} className="text-indigo-500 hover:text-indigo-700 font-semibold text-sm">ویرایش</button>
                                                     <button onClick={() => handleOpenPrintModal(invoice)} className="text-green-500 hover:text-green-700 font-semibold text-sm">چاپ</button>
                                                     <button onClick={() => handleOpenStatementModal(invoice.customeruserid, invoice.customer?.fullname || 'نامشخص')} className="text-purple-500 hover:text-purple-700 font-semibold text-sm">صورتحساب</button>
+                                                    <button onClick={() => handleOpenDeleteModal(invoice)} className="text-red-500 hover:text-red-700 font-semibold text-sm">حذف</button> {/* NEW DELETE BUTTON */}
                                                 </div>
                                             </div>
                                         )) : (
@@ -2197,7 +2302,7 @@
                     {printingInvoice && <PrintableInvoice invoice={printingInvoice} onClose={handleClosePrintModal} customerBalance={customerBalances[printingInvoice?.customeruserid]} />}
                     {printingPreInvoice && <PrintablePreInvoice preInvoiceData={printingPreInvoice} onClose={handleClosePrintPreInvoiceModal} customerBalance={customerBalances[printingPreInvoice?.customerId]} />}
 
-                    {/* NEW: Statement of Account Modal Render */}
+                    {/* Statement of Account Modal Render */}
                     {statementModalState.isOpen && (
                         <StatementOfAccountModal
                             isOpen={statementModalState.isOpen}
@@ -2206,6 +2311,16 @@
                             customerName={statementModalState.customerName}
                             formatCurrency={formatCurrency}
                             supabaseClient={supabaseClient}
+                        />
+                    )}
+                    
+                    {/* NEW: Confirm Delete Modal Render */}
+                    {deleteModalState.isOpen && (
+                        <ConfirmDeleteModal
+                            isOpen={deleteModalState.isOpen}
+                            onClose={handleCloseDeleteModal}
+                            onConfirm={handleDeleteInvoice}
+                            invoice={deleteModalState.invoiceToDelete}
                         />
                     )}
                 </div>
