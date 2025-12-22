@@ -10,6 +10,9 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
+    <!-- Excel Library (SheetJS) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -301,7 +304,7 @@
         };
 
         // ==================================================
-        // NEW: ConfirmDeleteModal Component
+        // ConfirmDeleteModal Component
         // ==================================================
         const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, invoice }) => {
             if (!isOpen || !invoice) return null;
@@ -367,8 +370,8 @@
                             });
                         });
                         (transactionsData || []).forEach(tx => {
-                            // Only show transactions related to payments (type 1) or other relevant transactions for the customer
-                            if (tx.transactiontypeid === 1) { // Customer Payment (Credit)
+                            // Type 1: Customer Payment (Credit)
+                            if (tx.transactiontypeid === 1) { 
                                 merged.push({
                                     date: tx.createdat,
                                     type: 'دریافت وجه (بستانکار)',
@@ -377,7 +380,16 @@
                                     description: `پرداخت از طریق تراکنش ${tx.id}`
                                 });
                             }
-                            // We explicitly ignore 'Supplier Payout' (type 2) transactions here
+                            // Type 2: Supplier Payout (Debit/Withdrawal)
+                            else if (tx.transactiontypeid === 2) {
+                                merged.push({
+                                    date: tx.createdat,
+                                    type: 'پرداخت به تامین‌کننده (برداشت)',
+                                    amount: -Math.abs(tx.amount), // Ensure it is negative
+                                    refId: tx.id,
+                                    description: `تسویه حساب/برداشت طی تراکنش ${tx.id}`
+                                });
+                            }
                         });
                         
                         // 4. Sort chronologically
@@ -403,6 +415,53 @@
                 fetchHistory();
             }, [isOpen, customerId]);
 
+            const handleDownloadExcel = () => {
+                if (!history || history.length === 0) {
+                    addToast('هیچ داده‌ای برای دانلود وجود ندارد', 'warning');
+                    return;
+                }
+
+                try {
+                    // Prepare data with Persian headers
+                    const exportData = history.map(item => ({
+                        'تاریخ': new Date(item.date).toLocaleDateString('fa-IR'),
+                        'نوع تراکنش': item.type,
+                        'شرح': item.description,
+                        'مبلغ (تومان)': item.amount,
+                        'مانده (تومان)': item.runningBalance
+                    }));
+
+                    // Create worksheet
+                    const ws = XLSX.utils.json_to_sheet(exportData);
+                    
+                    // Adjust column widths (optional but good)
+                    const wscols = [
+                        {wch: 15}, // Date
+                        {wch: 25}, // Type
+                        {wch: 40}, // Description
+                        {wch: 15}, // Amount
+                        {wch: 15}  // Balance
+                    ];
+                    ws['!cols'] = wscols;
+
+                    // Create workbook
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "Statement");
+
+                    // Generate file
+                    // Sanitize customer name for filename
+                    const safeName = customerName ? customerName.replace(/\s+/g, '_') : 'User';
+                    const fileName = `Statement_${safeName}_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.xlsx`;
+                    
+                    XLSX.writeFile(wb, fileName);
+                    
+                    addToast('فایل اکسل با موفقیت دانلود شد', 'success');
+                } catch (err) {
+                    console.error('Export failed:', err);
+                    addToast('خطا در ایجاد فایل اکسل', 'error');
+                }
+            };
+
             const finalBalance = history.length > 0 ? history[history.length - 1].runningBalance : 0;
             const balanceClass = finalBalance < 0 
                 ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300' 
@@ -416,7 +475,7 @@
                         </div>
                         
                         {isLoading ? <div className="spinner"></div> : history.length === 0 ? (
-                            <p className="text-center p-4 text-gray-500">هیچ تراکنش مالی برای این مشتری ثبت نشده است.</p>
+                            <p className="text-center p-4 text-gray-500">هیچ تراکنش مالی برای این کاربر ثبت نشده است.</p>
                         ) : (
                             <div className="overflow-x-auto max-h-[60vh] border rounded-lg dark:border-gray-700">
                                 <table className="w-full text-right text-sm min-w-[600px]">
@@ -432,7 +491,10 @@
                                         {history.map((item, index) => (
                                             <tr key={item.date + index} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                                 <td className="p-3 whitespace-nowrap">{new Date(item.date).toLocaleDateString('fa-IR')}</td>
-                                                <td className="p-3">{item.description}</td>
+                                                <td className="p-3">
+                                                    <div className="font-medium">{item.type}</div>
+                                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{item.description}</div>
+                                                </td>
                                                 <td className={`p-3 font-mono ${item.amount < 0 ? 'text-red-500' : 'text-green-500'}`} dir="ltr">{formatCurrency(Math.abs(item.amount))}</td>
                                                 <td className={`p-3 font-bold ${item.runningBalance < 0 ? 'text-red-500' : 'text-green-500'}`} dir="ltr">{formatCurrency(item.runningBalance)}</td>
                                             </tr>
@@ -442,8 +504,11 @@
                             </div>
                         )}
                     </div>
-                    <div className="flex justify-end mt-4">
+                    <div className="flex justify-end mt-4 gap-3">
                         <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg font-semibold">بستن</button>
+                        <button onClick={handleDownloadExcel} className="bg-indigo-600 text-white py-2 px-5 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed" disabled={history.length === 0}>
+                            دانلود اکسل
+                        </button>
                     </div>
                 </Modal>
             );
@@ -1228,6 +1293,7 @@
             const [invoices, setInvoices] = React.useState([]);
             const [allFilteredInvoices, setAllFilteredInvoices] = React.useState([]); // New: Store all invoices for client-side pagination
             const [transactions, setTransactions] = React.useState([]); 
+            const [suppliers, setSuppliers] = React.useState([]); // NEW: State for suppliers
             const [isLoading, setIsLoading] = React.useState(true);
             const [error, setError] = React.useState('');
             const [isSubmitting, setIsSubmitting] = React.useState(null);
@@ -1301,6 +1367,82 @@
                     newBalances[uid] = balance;
                 }));
                 setCustomerBalances(prev => ({ ...prev, ...newBalances }));
+            };
+
+            // NEW: Fetch Suppliers Data
+            const fetchSuppliersData = async () => {
+                setIsLoading(true);
+                setError('');
+                try {
+                    // 1. Fetch Suppliers (Role ID 3)
+                    const { data: profiles, error: profileError } = await supabaseClient
+                        .from('profiles')
+                        .select('id, fullname, mobile, national_id')
+                        .eq('roleid', 3);
+                    
+                    if (profileError) throw profileError;
+
+                    if (!profiles || profiles.length === 0) {
+                        setSuppliers([]);
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    const supplierIds = profiles.map(p => p.id);
+
+                    // 2. Fetch Transactions for these suppliers
+                    const { data: txs, error: txError } = await supabaseClient
+                        .from('usertransaction')
+                        .select('userid, amount')
+                        .in('userid', supplierIds);
+                        
+                    if (txError) throw txError;
+
+                    // 3. Fetch Invoices where they might be customers (to calculate correct balance)
+                    const { data: invs, error: invError } = await supabaseClient
+                        .from('demandinvoice')
+                        .select('customeruserid, totalamount')
+                        .in('customeruserid', supplierIds);
+
+                    if (invError) throw invError;
+
+                    // 4. Aggregate Balance and Payouts
+                    const stats = {};
+                    supplierIds.forEach(id => stats[id] = { balance: 0, totalPayouts: 0 });
+
+                    // Sum Transactions
+                    (txs || []).forEach(tx => {
+                        if (stats[tx.userid]) {
+                            stats[tx.userid].balance += (tx.amount || 0);
+                            // Assuming negative transaction for supplier is a Payout
+                            if ((tx.amount || 0) < 0) {
+                                stats[tx.userid].totalPayouts += Math.abs(tx.amount);
+                            }
+                        }
+                    });
+
+                    // Subtract Invoices (if any)
+                    (invs || []).forEach(inv => {
+                        if (stats[inv.customeruserid]) {
+                            stats[inv.customeruserid].balance -= (inv.totalamount || 0);
+                        }
+                    });
+
+                    // 5. Merge data
+                    const result = profiles.map(p => ({
+                        ...p,
+                        balance: stats[p.id].balance,
+                        totalPayouts: stats[p.id].totalPayouts
+                    }));
+
+                    setSuppliers(result);
+
+                } catch (err) {
+                    console.error("Error fetching suppliers:", err);
+                    setError(`خطا در بارگذاری تامین‌کنندگان: ${err.message}`);
+                } finally {
+                    setIsLoading(false);
+                }
             };
 
             // New: Fetch Transaction Data
@@ -1524,8 +1666,10 @@
                     fetchPendingData();
                 } else if (activeTab === 'transactions') {
                     fetchTransactionData();
+                } else if (activeTab === 'suppliers') { // NEW
+                    fetchSuppliersData();
                 }
-            }, []);
+            }, [activeTab]); // Ensure deps are correct (removed [] to depend on activeTab change logic inside component if necessary, or keep logic consistent)
             
             // Re-run fetch when filters change
             React.useEffect(() => {
@@ -1534,6 +1678,7 @@
                 } else if (activeTab === 'transactions') {
                     fetchTransactionData();
                 }
+                // No specific filters for suppliers yet
             }, [activeTab, currentPage, searchQuery, showShippingOnly, showNonZeroBalanceOnly]); 
             
             const refreshData = async () => {
@@ -1544,6 +1689,8 @@
                 } else if (activeTab === 'transactions') {
                     if (currentPage !== 0) setCurrentPage(0);
                     else await fetchTransactionData();
+                } else if (activeTab === 'suppliers') { // NEW
+                    await fetchSuppliersData();
                 } else {
                     if(currentPage !== 0) {
                         setCurrentPage(0); 
@@ -1676,7 +1823,7 @@
                     const { data: allAssignments, error: assignmentError } = await supabaseClient
                         .from('supplier_demand_assignment')
                         .select('demand_item_id, supplieruserid')
-                        .in('demand_item_id', itemIds);
+                        .in('demand_item_id, itemIds');
                     if (assignmentError) throw assignmentError;
 
                     const invoiceDetails = uniqueItems.map(item => {
@@ -1890,6 +2037,7 @@
                             <button onClick={() => handleTabChange('pending')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'pending' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>آماده صدور</button>
                             <button onClick={() => handleTabChange('history')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه فاکتورها</button>
                             <button onClick={() => handleTabChange('transactions')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'transactions' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>تاریخچه تراکنش‌ها (Allocation Log)</button>
+                            <button onClick={() => handleTabChange('suppliers')} className={`px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap ${activeTab === 'suppliers' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'}`}>وضعیت تامین‌کنندگان</button>
                         </nav>
                     </div>
                     
@@ -2289,7 +2437,86 @@
                             )}
                         </div>
                     )}
-                    
+
+                    {/* NEW: Suppliers Tab Content */}
+                    {activeTab === 'suppliers' && (
+                        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                            <h2 className="text-lg font-bold mb-4">لیست تامین‌کنندگان و وضعیت حساب</h2>
+                            
+                            <div className="mb-4">
+                                <label htmlFor="supplier-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">جستجو تامین‌کننده</label>
+                                <div className="relative">
+                                    <input
+                                        id="supplier-search"
+                                        type="text"
+                                        placeholder="جستجو بر اساس نام..."
+                                        value={searchQuery}
+                                        onChange={handleSearchChange}
+                                        className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                    />
+                                    {searchQuery && (
+                                        <button 
+                                            onClick={() => { setSearchQuery(''); }}
+                                            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                        >
+                                            &times;
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {isLoading && <div className="spinner"></div>}
+                            {error && <p className="text-center p-8 text-red-500 bg-red-100 dark:bg-red-900/50 rounded-lg">{error}</p>}
+
+                            {!isLoading && !error && (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-right min-w-[600px]">
+                                        <thead>
+                                            <tr className="border-b dark:border-gray-700">
+                                                <th className="p-3 font-semibold">نام تامین‌کننده</th>
+                                                <th className="p-3 font-semibold">شماره تماس</th>
+                                                <th className="p-3 font-semibold">کل پرداختی‌ها (برداشت)</th>
+                                                <th className="p-3 font-semibold">مانده حساب جاری</th>
+                                                <th className="p-3 font-semibold">عملیات</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {suppliers
+                                                .filter(s => (s.fullname || '').toLowerCase().includes(searchQuery.toLowerCase()))
+                                                .length > 0 ? 
+                                                suppliers
+                                                .filter(s => (s.fullname || '').toLowerCase().includes(searchQuery.toLowerCase()))
+                                                .map(supplier => (
+                                                <tr key={supplier.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                    <td className="p-3 font-medium">{supplier.fullname}</td>
+                                                    <td className="p-3 text-sm text-gray-500">{supplier.mobile || '-'}</td>
+                                                    <td className="p-3 text-red-600 dark:text-red-400" dir="ltr">
+                                                        {formatCurrency(supplier.totalPayouts)} تومان
+                                                    </td>
+                                                    <td className={`p-3 font-bold ${supplier.balance < 0 ? 'text-red-600' : 'text-green-600'}`} dir="ltr">
+                                                        {formatCurrency(supplier.balance)} تومان
+                                                    </td>
+                                                    <td className="p-3">
+                                                        <button 
+                                                            onClick={() => handleOpenStatementModal(supplier.id, supplier.fullname)} 
+                                                            className="text-indigo-500 hover:text-indigo-700 font-semibold text-sm bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded transition-colors"
+                                                        >
+                                                            مشاهده صورتحساب
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan="5" className="p-8 text-center text-gray-500">هیچ تامین‌کننده‌ای یافت نشد.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {allocationModalState.isOpen && (
                         <PaymentAllocationModal 
                             isOpen={allocationModalState.isOpen} 
