@@ -1629,8 +1629,25 @@
                     if (supplierError) throw supplierError;
                     if (!suppliers || suppliers.length === 0) { setBalances([]); setLoading(false); return; }
 
-                    const { data: pos, error: poError } = await supabaseClient.from('purchase_orders').select(`id, supplier_id, status, created_at, purchase_order_details (quantity, purchase_price)`);
+                    const { data: pos, error: poError } = await supabaseClient.from('purchase_orders').select(`id, supplier_id, status, created_at, demandid, purchase_order_details (quantity, purchase_price)`);
                     if (poError) throw poError;
+
+                    // Fetch demand -> customer mappings securely
+                    const demandIds = [...new Set(pos.map(po => po.demandid).filter(Boolean))];
+                    const customersMap = new Map();
+                    if (demandIds.length > 0) {
+                         const { data: demands } = await supabaseClient.from('demand').select('id, customeruserid').in('id', demandIds);
+                         if (demands && demands.length > 0) {
+                             const customerIds = [...new Set(demands.map(d => d.customeruserid).filter(Boolean))];
+                             if (customerIds.length > 0) {
+                                 const { data: customers } = await supabaseClient.from('profiles').select('id, fullname').in('id', customerIds);
+                                 const profileMap = new Map((customers || []).map(c => [c.id, c.fullname]));
+                                 demands.forEach(d => {
+                                     if (d.customeruserid) customersMap.set(d.id, profileMap.get(d.customeruserid) || 'نامشخص');
+                                 });
+                             }
+                         }
+                    }
 
                     const supplierIds = suppliers.map(s => s.id);
                     const { data: txs, error: txError } = await supabaseClient.from('usertransaction').select('id, userid, amount, createdat, description').in('userid', supplierIds);
@@ -1643,6 +1660,7 @@
                         if (map[po.supplier_id] && po.status !== 'Cancelled' && po.status !== 'Merged') {
                             const poTotal = po.purchase_order_details.reduce((sum, d) => sum + ((d.quantity || 0) * (d.purchase_price || 0)), 0);
                             map[po.supplier_id].totalPO += poTotal;
+                            po.customerName = customersMap.get(po.demandid) || 'نامشخص';
                             map[po.supplier_id].pos.push(po);
                         }
                     });
@@ -1681,6 +1699,61 @@
                 } catch (error) { addToast(`خطا در ثبت تراکنش: ${error.message}`, 'error'); }
             };
 
+            const handleDownloadSupplierExcel = (supplier) => {
+                if (!supplier) return;
+                try {
+                    const merged = [];
+                    (supplier.pos || []).forEach(po => {
+                        const poTotal = po.purchase_order_details.reduce((sum, detail) => sum + ((detail.quantity || 0) * (detail.purchase_price || 0)), 0);
+                        merged.push({
+                            date: po.created_at,
+                            type: 'سفارش خرید (بدهی ما)',
+                            customerName: po.customerName || 'نامشخص',
+                            description: `شماره سفارش #${po.id}`,
+                            amount: poTotal
+                        });
+                    });
+                    (supplier.transactions || []).forEach(tx => {
+                        merged.push({
+                            date: tx.createdat,
+                            type: 'پرداختی (بستانکاری ما)',
+                            customerName: '-',
+                            description: tx.description || `تراکنش #${tx.id}`,
+                            amount: -Math.abs(tx.amount)
+                        });
+                    });
+                    merged.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    let runningBalance = 0;
+                    const exportData = merged.map(item => {
+                        runningBalance += item.amount;
+                        return {
+                            'تاریخ': new Date(item.date).toLocaleDateString('fa-IR'),
+                            'نوع': item.type,
+                            'مشتری': item.customerName,
+                            'شرح': item.description,
+                            'مبلغ (تومان)': item.amount,
+                            'تراز (تومان)': runningBalance
+                        };
+                    });
+                    if (exportData.length === 0) {
+                        addToast('هیچ داده‌ای برای این تامین‌کننده وجود ندارد.', 'warning');
+                        return;
+                    }
+                    const ws = XLSX.utils.json_to_sheet(exportData);
+                    const wscols = [{wch: 15}, {wch: 25}, {wch: 20}, {wch: 40}, {wch: 15}, {wch: 15}];
+                    ws['!cols'] = wscols;
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, "صورتحساب");
+                    const safeName = supplier.fullname ? supplier.fullname.replace(/\s+/g, '_') : 'Supplier';
+                    const fileName = `Supplier_Statement_${safeName}_${new Date().toLocaleDateString('fa-IR').replace(/\//g, '-')}.xlsx`;
+                    XLSX.writeFile(wb, fileName);
+                    addToast('فایل اکسل با موفقیت دانلود شد', 'success');
+                } catch (err) {
+                    console.error('Export failed:', err);
+                    addToast('خطا در ایجاد فایل اکسل', 'error');
+                }
+            };
+
             if (loading) return <div className="spinner"></div>;
 
             return (
@@ -1707,6 +1780,7 @@
                                             <div className="flex justify-center gap-2">
                                                 <button onClick={() => setViewingSupplier(supplier)} className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-1.5 rounded text-xs font-medium border border-indigo-200">جزئیات</button>
                                                 <button onClick={() => setPayingSupplier(supplier)} className="bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded text-xs font-medium border border-green-200">ثبت پرداخت</button>
+                                                <button onClick={() => handleDownloadSupplierExcel(supplier)} className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-medium border border-blue-200">دانلود اکسل</button>
                                             </div>
                                         </td>
                                     </tr>
