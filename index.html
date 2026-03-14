@@ -559,7 +559,7 @@
                         
                         const { data: transactionsData, error: txError } = await supabaseClient
                             .from('usertransaction')
-                            .select('id, createdat, amount, transactiontypeid, description')
+                            .select('id, createdat, amount, transactiontypeid, description, customer_payment_date')
                             .eq('userid', customerId);
                         if (txError) throw txError;
 
@@ -576,7 +576,7 @@
                         (transactionsData || []).forEach(tx => {
                             if (tx.transactiontypeid === 1) { 
                                 merged.push({
-                                    date: tx.createdat,
+                                    date: tx.customer_payment_date || tx.createdat,
                                     type: 'دریافت وجه (بستانکار)',
                                     amount: Math.abs(tx.amount), 
                                     refId: tx.id,
@@ -585,7 +585,7 @@
                             }
                             else if (tx.transactiontypeid === 2) {
                                 merged.push({
-                                    date: tx.createdat,
+                                    date: tx.createdat, // Payouts use createdat by default
                                     type: 'پرداخت به تامین‌کننده (برداشت)',
                                     amount: -Math.abs(tx.amount), 
                                     refId: tx.id,
@@ -703,17 +703,29 @@
         // Payment & PO Allocation Modal
         // ==================================================
         const PaymentAllocationModal = ({ isOpen, onClose, onSave, preInvoiceData }) => {
-            const [totalAmountReceived, setTotalAmountReceived] = React.useState(0);
+            const getInitialDate = () => {
+                const today = jalaali.toJalaali(new Date());
+                return `${today.jy}/${String(today.jm).padStart(2, '0')}/${String(today.jd).padStart(2, '0')}`;
+            };
+            
+            const [customerPayments, setCustomerPayments] = React.useState([]);
             const [allocations, setAllocations] = React.useState([]);
             const [purchaseDetails, setPurchaseDetails] = React.useState([]);
             const [users, setUsers] = React.useState([]);
             const [isSubmitting, setIsSubmitting] = React.useState(false);
             const { addToast } = useToasts();
             const [searchTerm, setSearchTerm] = React.useState(''); 
+            const [activeCustomerCalendarIndex, setActiveCustomerCalendarIndex] = React.useState(null);
 
             React.useEffect(() => {
                 if (preInvoiceData) {
-                    setTotalAmountReceived(preInvoiceData.totalAmount);
+                    setCustomerPayments([{
+                        amount: formatNumberWithCommas(preInvoiceData.totalAmount),
+                        date: getInitialDate(),
+                        description: '',
+                        key: Math.random()
+                    }]);
+
                     const initialAllocations = Object.values(preInvoiceData.suppliers).map(supplier => ({
                         userId: supplier.id,
                         amount: '',
@@ -729,7 +741,9 @@
                         supplier_id: item.supplier_id || '',
                         quantity: item.approved_supply_quantity || 0,
                         purchase_price: item.approved_supply_price || 0,
-                        actual_shipping_price: 0
+                        actual_shipping_price: 0,
+                        supplier_invoice_id: '',
+                        note: ''
                     })));
                 }
             }, [preInvoiceData]);
@@ -750,17 +764,40 @@
                 fetchUsers();
             }, []);
             
+            const totalAmountReceived = React.useMemo(() =>
+                customerPayments.reduce((sum, p) => sum + parseFormattedNumber(p.amount), 0),
+                [customerPayments]
+            );
+
             const totalAllocated = React.useMemo(() =>
                 allocations.reduce((sum, alloc) => sum + parseFormattedNumber(alloc.amount), 0),
                 [allocations]
             );
 
-            const remainingAmount = parseFormattedNumber(totalAmountReceived) - totalAllocated;
+            const remainingAmount = totalAmountReceived - totalAllocated;
 
             const selectedUserIds = React.useMemo(() =>
                 new Set(allocations.map(a => a.userId).filter(Boolean)),
                 [allocations]
             );
+
+            const handleCustomerPaymentChange = (index, field, value) => {
+                const newPayments = [...customerPayments];
+                if (field === 'amount') {
+                    newPayments[index][field] = formatNumberWithCommas(value);
+                } else {
+                    newPayments[index][field] = value;
+                }
+                setCustomerPayments(newPayments);
+            };
+
+            const addCustomerPaymentRow = () => {
+                setCustomerPayments([...customerPayments, { amount: '', date: getInitialDate(), description: '', key: Math.random() }]);
+            };
+
+            const removeCustomerPaymentRow = (index) => {
+                setCustomerPayments(customerPayments.filter((_, i) => i !== index));
+            };
 
             const handleAllocationChange = (index, field, value) => {
                 const newAllocations = [...allocations];
@@ -774,7 +811,7 @@
 
             const handlePurchaseDetailChange = (index, field, value) => {
                 const newDetails = [...purchaseDetails];
-                if (field === 'supplier_id') {
+                if (field === 'supplier_id' || field === 'supplier_invoice_id' || field === 'note') {
                     newDetails[index][field] = value;
                 } else {
                     newDetails[index][field] = parseFormattedNumber(value);
@@ -792,20 +829,39 @@
             };
             
             const handleSave = async () => {
-                const parsedTotalReceived = parseFormattedNumber(totalAmountReceived);
+                const parsedTotalReceived = totalAmountReceived;
                 if (totalAllocated > parsedTotalReceived) {
-                    addToast('مبلغ تخصیص‌داده شده بیشتر از مبلغ دریافتی است!', 'warning');
+                    addToast('مبلغ تخصیص‌داده شده بیشتر از مجموع مبالغ دریافتی است!', 'warning');
                     return; 
+                }
+
+                const validCustomerPayments = [];
+                for (const p of customerPayments) {
+                    const amt = parseFormattedNumber(p.amount);
+                    if (amt <= 0) continue; 
+                    
+                    const dateParts = p.date.split('/');
+                    if (dateParts.length !== 3) {
+                         addToast('فرمت تاریخ یکی از پرداختی‌ها نامعتبر است.', 'error');
+                         return;
+                    }
+                    const jy = parseInt(dateParts[0], 10);
+                    const jm = parseInt(dateParts[1], 10);
+                    const jd = parseInt(dateParts[2], 10);
+                    if (!jalaali.isValidJalaaliDate(jy, jm, jd)) {
+                        return addToast('تاریخ پرداخت نامعتبر است', 'error');
+                    }
+                    const g = jalaali.toGregorian(jy, jm, jd);
+                    validCustomerPayments.push({
+                        amount: amt,
+                        gregorianDate: `${g.gy}-${String(g.gm).padStart(2, '0')}-${String(g.gd).padStart(2, '0')}`,
+                        description: p.description || ''
+                    });
                 }
                 
                 const finalAllocations = allocations
-                    .map(a => ({...a, amount: parseFormattedNumber(a.amount)}))
+                    .map(a => ({...a, amount: parseFormattedNumber(a.amount), description: a.description}))
                     .filter(a => a.userId && a.amount > 0);
-
-                if (finalAllocations.length === 0) {
-                    addToast("لطفا حداقل یک تخصیص پرداخت معتبر وارد کنید.", 'error');
-                    return;
-                }
 
                 const missingSuppliers = purchaseDetails.filter(pd => !pd.supplier_id);
                 if (missingSuppliers.length > 0) {
@@ -816,7 +872,7 @@
                 setIsSubmitting(true);
                 try {
                     await onSave({
-                        totalAmountReceived: parsedTotalReceived,
+                        validCustomerPayments,
                         allocations: finalAllocations,
                         preInvoiceData,
                         purchaseDetails
@@ -838,34 +894,77 @@
             if (!preInvoiceData) return null;
 
             return (
-                <Modal isOpen={isOpen} onClose={onClose} title="ثبت فاکتور، تخصیص مالی و ایجاد سفارش خرید" maxWidth="max-w-5xl">
+                <Modal isOpen={isOpen} onClose={onClose} title="ثبت فاکتور، تخصیص مالی و ایجاد سفارش خرید" maxWidth="max-w-6xl">
                     <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {/* Right Column: Invoice and Allocations */}
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block font-semibold mb-2">مبلغ کل دریافت شده از مشتری</label>
-                                    <input
-                                        type="text"
-                                        value={formatNumberWithCommas(totalAmountReceived)}
-                                        onChange={e => setTotalAmountReceived(e.target.value)}
-                                        className="w-full bg-gray-100 dark:bg-gray-700 p-2.5 rounded-md text-center text-lg font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                                        dir="ltr"
-                                    />
-                                </div>
-                                
-                                <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg text-sm gap-2 border dark:border-gray-600">
-                                    <div dir="rtl">
-                                        <span className="text-gray-600 dark:text-gray-300">مبلغ تخصیص داده شده: </span>
-                                        <span className="font-bold" dir="ltr">{formatCurrency(totalAllocated)}</span>
+                            <div className="space-y-4 flex flex-col">
+                                {/* Customer Payments List */}
+                                <div className="border-b dark:border-gray-700 pb-4">
+                                    <h3 className="font-semibold mb-3 text-green-700 dark:text-green-400">واریزی‌های مشتری</h3>
+                                    <div className="space-y-2 max-h-[30vh] overflow-y-auto custom-scrollbar pr-1">
+                                        {customerPayments.map((payment, index) => (
+                                            <div key={payment.key} className="flex flex-col gap-2 p-3 bg-green-50 dark:bg-green-900/10 rounded-md border border-green-100 dark:border-green-800">
+                                                <div className="flex flex-col xl:flex-row items-center gap-2">
+                                                    <div className="relative w-full xl:w-40">
+                                                        <div 
+                                                            onClick={() => setActiveCustomerCalendarIndex(index)}
+                                                            className="w-full border border-gray-300 dark:border-gray-600 rounded-md p-1.5 bg-white dark:bg-gray-600 cursor-pointer flex justify-between items-center text-sm"
+                                                        >
+                                                            <span className="font-mono text-center w-full">{payment.date}</span>
+                                                            <span className="text-gray-400 text-xs">📅</span>
+                                                        </div>
+                                                        <JalaliDatePicker 
+                                                            isOpen={activeCustomerCalendarIndex === index} 
+                                                            onClose={() => setActiveCustomerCalendarIndex(null)}
+                                                            selectedDate={payment.date}
+                                                            onSelect={(selected) => { handleCustomerPaymentChange(index, 'date', selected); setActiveCustomerCalendarIndex(null); }}
+                                                        />
+                                                    </div>
+                                                    <div className="flex w-full xl:w-auto items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="مبلغ واریزی"
+                                                            value={payment.amount}
+                                                            onChange={e => handleCustomerPaymentChange(index, 'amount', e.target.value)}
+                                                            className="flex-grow xl:w-32 bg-white dark:bg-gray-600 p-1.5 rounded-md text-center outline-none focus:ring-1 focus:ring-green-500 text-sm font-mono"
+                                                            dir="ltr"
+                                                        />
+                                                        <button onClick={() => removeCustomerPaymentRow(index)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded p-1 font-bold text-lg">&times;</button>
+                                                    </div>
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder="شماره پیگیری یا توضیحات واریز..."
+                                                    value={payment.description || ''}
+                                                    onChange={e => handleCustomerPaymentChange(index, 'description', e.target.value)}
+                                                    className="w-full bg-white dark:bg-gray-600 p-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-green-500 text-left"
+                                                    dir="ltr"
+                                                />
+                                            </div>
+                                        ))}
                                     </div>
-                                    <div className={`font-bold ${remainingAmount < 0 ? 'text-red-500' : 'text-green-500'}`} dir="rtl">
-                                        <span className="text-gray-600 dark:text-gray-300">مبلغ باقی‌مانده: </span>
+                                    <button onClick={addCustomerPaymentRow} className="mt-3 text-sm text-green-600 dark:text-green-400 font-semibold hover:underline">+ افزودن واریزی جدید</button>
+                                </div>
+
+                                {/* Summary Box */}
+                                <div className="flex flex-col sm:flex-row justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg text-sm gap-2 border dark:border-gray-600">
+                                    <div dir="rtl" className="w-full flex justify-between sm:block sm:w-auto">
+                                        <span className="text-gray-600 dark:text-gray-300">جمع دریافتی: </span>
+                                        <span className="font-bold text-green-600" dir="ltr">{formatCurrency(totalAmountReceived)}</span>
+                                    </div>
+                                    <div dir="rtl" className="w-full flex justify-between sm:block sm:w-auto">
+                                        <span className="text-gray-600 dark:text-gray-300">جمع تخصیص: </span>
+                                        <span className="font-bold text-red-500" dir="ltr">{formatCurrency(totalAllocated)}</span>
+                                    </div>
+                                    <div className={`font-bold w-full flex justify-between sm:block sm:w-auto ${remainingAmount < 0 ? 'text-red-500' : 'text-green-500'}`} dir="rtl">
+                                        <span className="text-gray-600 dark:text-gray-300">باقی‌مانده: </span>
                                         <span dir="ltr">{formatCurrency(remainingAmount)}</span>
                                     </div>
                                 </div>
 
-                                <div className="border-t dark:border-gray-700 pt-4">
+                                {/* Supplier Allocations List */}
+                                <div className="pt-2">
                                     <h3 className="font-semibold mb-3">تخصیص پرداخت به تامین‌کنندگان / کاربران</h3>
                                     
                                     <input
@@ -876,7 +975,7 @@
                                         className="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-3 outline-none focus:ring-2 focus:ring-indigo-500"
                                     />
 
-                                    <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-1">
+                                    <div className="space-y-2 max-h-[30vh] overflow-y-auto custom-scrollbar pr-1">
                                         {allocations.map((alloc, index) => (
                                             <div key={alloc.key} className="flex flex-col gap-2 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-md border dark:border-gray-600">
                                                 <div className="flex flex-col xl:flex-row items-center gap-2">
@@ -911,10 +1010,11 @@
                                                 </div>
                                                 <input
                                                     type="text"
-                                                    placeholder="توضیحات (اختیاری)..."
+                                                    placeholder="شماره پیگیری یا توضیحات تراکنش..."
                                                     value={alloc.description || ''}
                                                     onChange={e => handleAllocationChange(index, 'description', e.target.value)}
-                                                    className="w-full bg-white dark:bg-gray-600 p-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                                                    className="w-full bg-white dark:bg-gray-600 p-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-indigo-500 text-left"
+                                                    dir="ltr"
                                                 />
                                             </div>
                                         ))}
@@ -924,10 +1024,10 @@
                             </div>
 
                             {/* Left Column: PO Generation Details */}
-                            <div className="border-t md:border-t-0 md:border-r dark:border-gray-700 md:pr-6 pt-4 md:pt-0">
+                            <div className="border-t lg:border-t-0 lg:border-r dark:border-gray-700 lg:pr-6 pt-4 lg:pt-0">
                                 <h3 className="font-semibold mb-3 text-indigo-700 dark:text-indigo-300">جزئیات خرید (ایجاد خودکار PO)</h3>
                                 <p className="text-xs text-gray-500 mb-3">مقادیر نهایی خرید را وارد کنید. سفارشات خرید بر اساس تامین‌کننده تفکیک خواهند شد.</p>
-                                <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-1">
+                                <div className="space-y-3 max-h-[65vh] overflow-y-auto custom-scrollbar pr-1">
                                     {purchaseDetails.map((pd, index) => (
                                         <div key={pd.demand_item_id} className="bg-gray-50 dark:bg-gray-700/40 p-3 rounded-lg border dark:border-gray-600 space-y-3">
                                             <div className="font-bold text-sm text-gray-800 dark:text-gray-200 border-b dark:border-gray-600 pb-2">{pd.title}</div>
@@ -961,6 +1061,16 @@
                                                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">جمع کل ردیف</label>
                                                     <div className="p-1.5 font-mono font-bold text-left bg-gray-100 dark:bg-gray-600 rounded border border-transparent" dir="ltr">
                                                         {formatNumberWithCommas(pd.quantity * pd.purchase_price)}
+                                                    </div>
+                                                </div>
+                                                <div className="col-span-2 grid grid-cols-2 gap-3 mt-2 border-t dark:border-gray-600 pt-2">
+                                                    <div>
+                                                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">شماره فاکتور تامین‌کننده</label>
+                                                        <input type="text" placeholder="مثلا: 12345" value={pd.supplier_invoice_id || ''} onChange={e => handlePurchaseDetailChange(index, 'supplier_invoice_id', e.target.value)} className="w-full bg-white dark:bg-gray-600 p-1.5 rounded-md border text-right outline-none focus:ring-1 focus:ring-indigo-500" dir="rtl" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">یادداشت خرید</label>
+                                                        <input type="text" placeholder="توضیحات اختیاری..." value={pd.note || ''} onChange={e => handlePurchaseDetailChange(index, 'note', e.target.value)} className="w-full bg-white dark:bg-gray-600 p-1.5 rounded-md border text-right outline-none focus:ring-1 focus:ring-indigo-500" dir="rtl" />
                                                     </div>
                                                 </div>
                                             </div>
@@ -1447,7 +1557,7 @@
                         {activeTab === 'pos' ? (
                              <table className="w-full text-right text-sm">
                                 <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0">
-                                    <tr><th className="p-3">تاریخ</th><th className="p-3">شماره سفارش</th><th className="p-3">وضعیت</th><th className="p-3">مبلغ (تومان)</th></tr>
+                                    <tr><th className="p-3">تاریخ</th><th className="p-3">شماره سفارش</th><th className="p-3">مشتری</th><th className="p-3">وضعیت</th><th className="p-3">مبلغ (تومان)</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                                     {supplier.pos && supplier.pos.length > 0 ? (
@@ -1457,12 +1567,13 @@
                                                 <tr key={po.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                                                     <td className="p-3">{new Date(po.created_at).toLocaleDateString('fa-IR')}</td>
                                                     <td className="p-3 font-mono">#{po.id}</td>
+                                                    <td className="p-3">{po.customerName || 'نامشخص'}</td>
                                                     <td className="p-3"><span className={`px-2 py-0.5 text-xs rounded-full ${getStatusStyles(po.status)}`}>{po.status}</span></td>
                                                     <td className="p-3 font-bold text-red-600 dark:text-red-400" dir="ltr">{formatCurrency(poTotal)}</td>
                                                 </tr>
                                             )
                                         })
-                                    ) : <tr><td colSpan="4" className="p-4 text-center text-gray-500">هیچ سفارشی یافت نشد.</td></tr>}
+                                    ) : <tr><td colSpan="5" className="p-4 text-center text-gray-500">هیچ سفارشی یافت نشد.</td></tr>}
                                 </tbody>
                             </table>
                         ) : (
@@ -1823,6 +1934,10 @@
             const [showShippingOnly, setShowShippingOnly] = React.useState(false);
             const [showNonZeroBalanceOnly, setShowNonZeroBalanceOnly] = React.useState(false);
 
+            // Transaction Edit State
+            const [editingTxId, setEditingTxId] = React.useState(null);
+            const [editingTxDesc, setEditingTxDesc] = React.useState('');
+
             const fetchGlobalBalances = async () => {
                 try {
                     const { data: allTx, error: txError } = await supabaseClient.from('usertransaction').select('userid, amount');
@@ -2059,7 +2174,7 @@
 
             const handleInitiatePayment = (customerId) => { setAllocationModalState({ isOpen: true, preInvoiceData: preInvoices[customerId] }); };
 
-            const handleSaveAllocationAndCreateInvoice = async ({ totalAmountReceived, allocations, preInvoiceData, purchaseDetails }) => {
+            const handleSaveAllocationAndCreateInvoice = async ({ validCustomerPayments, allocations, preInvoiceData, purchaseDetails }) => {
                 const { customerId, items, discount, demandid } = preInvoiceData;
                 const totalShipping = items.reduce((sum, item) => sum + (item.shipping_price || 0), 0);
                 setIsSubmitting(customerId);
@@ -2103,7 +2218,7 @@
                     if (fetchPoError) throw fetchPoError;
 
                     // Collect all existing details to easily find them and update them
-                    const existingDetailsMap = new Map(); // demand_item_id -> detail object
+                    const existingDetailsMap = new Map(); 
                     existingPOs?.forEach(po => {
                         po.purchase_order_details?.forEach(d => {
                             existingDetailsMap.set(d.demand_item_id, { id: d.id, purchase_order_id: po.id });
@@ -2117,7 +2232,6 @@
                         const totalActualShipping = pds.reduce((sum, item) => sum + ((item.quantity || 0) * (item.actual_shipping_price || 0)), 0);
                         
                         let currentPoId;
-                        // 3.a. Try to find an exact match by supplier_id
                         const exactPo = existingPOs?.find(po => po.supplier_id === supplierId && !touchedPoIds.has(po.id));
                         
                         if (exactPo) {
@@ -2132,7 +2246,6 @@
                             touchedPoIds.add(currentPoId);
                             availablePoIds = availablePoIds.filter(id => id !== currentPoId);
                         } else if (availablePoIds.length > 0) {
-                            // 3.b. Repurpose an unused PO
                             currentPoId = availablePoIds.shift();
                             const { error: updatePoError } = await supabaseClient.from('purchase_orders').update({
                                 supplier_id: supplierId,
@@ -2144,7 +2257,6 @@
                             
                             touchedPoIds.add(currentPoId);
                         } else {
-                            // 3.c. Create new PO
                             const { data: newPO, error: poError } = await supabaseClient.from('purchase_orders').insert({
                                 demandid: demandid,
                                 demandinvoice_id: invoiceHeader.id,
@@ -2158,52 +2270,60 @@
                             touchedPoIds.add(currentPoId);
                         }
 
-                        // 3.d. Update or Insert Details for this PO
                         for (const pd of pds) {
                             const existingDetail = existingDetailsMap.get(pd.demand_item_id);
                             
+                            const detailPayload = {
+                                purchase_order_id: currentPoId,
+                                quantity: pd.quantity,
+                                purchase_price: pd.purchase_price,
+                                actual_shipping_price: pd.actual_shipping_price,
+                                supplier_invoice_id: pd.supplier_invoice_id || null,
+                                note: pd.note || null
+                            };
+                            
                             if (existingDetail) {
-                                // Update existing detail and move it to the correct currentPoId
-                                const { error: updateDetailError } = await supabaseClient.from('purchase_order_details').update({
-                                    purchase_order_id: currentPoId,
-                                    quantity: pd.quantity,
-                                    purchase_price: pd.purchase_price,
-                                    actual_shipping_price: pd.actual_shipping_price
-                                }).eq('id', existingDetail.id);
+                                const { error: updateDetailError } = await supabaseClient.from('purchase_order_details')
+                                    .update(detailPayload)
+                                    .eq('id', existingDetail.id);
                                 if (updateDetailError) throw updateDetailError;
                                 
-                                // Remove from map so we know it's been handled
                                 existingDetailsMap.delete(pd.demand_item_id);
                             } else {
-                                // Insert new detail
-                                const { error: insertDetailError } = await supabaseClient.from('purchase_order_details').insert({
-                                    purchase_order_id: currentPoId,
-                                    demand_item_id: pd.demand_item_id,
-                                    quantity: pd.quantity,
-                                    purchase_price: pd.purchase_price,
-                                    actual_shipping_price: pd.actual_shipping_price
-                                });
+                                const { error: insertDetailError } = await supabaseClient.from('purchase_order_details')
+                                    .insert({
+                                        ...detailPayload,
+                                        demand_item_id: pd.demand_item_id
+                                    });
                                 if (insertDetailError) throw insertDetailError;
                             }
                         }
                     }
 
-                    // 3.e. Cleanup orphaned details (Items removed from demand)
                     if (existingDetailsMap.size > 0) {
                         const detailIdsToDelete = Array.from(existingDetailsMap.values()).map(d => d.id);
                         await supabaseClient.from('purchase_order_details').delete().in('id', detailIdsToDelete);
                     }
 
-                    // 3.f. Cleanup orphaned POs (POs no longer needed because supplier count reduced)
                     if (availablePoIds.length > 0) {
                         await supabaseClient.from('purchase_order_logs').delete().in('purchase_order_id', availablePoIds);
                         await supabaseClient.from('purchase_orders').delete().in('id', availablePoIds);
                     }
 
                     // 4. Create Transactions
-                    const transactions = [
-                        { userid: customerId, amount: totalAmountReceived, demandinvoiceid: invoiceHeader.id, transactiontypeid: 1 }
-                    ];
+                    const transactions = [];
+                    
+                    validCustomerPayments.forEach(cp => {
+                        transactions.push({
+                            userid: customerId,
+                            amount: cp.amount,
+                            demandinvoiceid: invoiceHeader.id,
+                            transactiontypeid: 1,
+                            customer_payment_date: cp.gregorianDate,
+                            description: cp.description || ''
+                        });
+                    });
+                    
                     allocations.forEach(alloc => {
                         transactions.push({ 
                             userid: alloc.userId, 
@@ -2291,6 +2411,20 @@
                     addToast(`فاکتور شماره ${invoice.id} با موفقیت حذف شد.`, 'success');
                     await refreshData();
                 } catch (err) { addToast(`خطا در حذف فاکتور: ${err.message}`, 'error'); } finally { setIsLoading(false); }
+            };
+
+            const handleSaveTxDesc = async (txId) => {
+                try {
+                    const { error } = await supabaseClient.from('usertransaction').update({ description: editingTxDesc }).eq('id', txId);
+                    if (error) throw error;
+                    
+                    setTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, description: editingTxDesc } : tx));
+                    addToast('توضیحات تراکنش بروزرسانی شد', 'success');
+                } catch (err) {
+                    addToast(`خطا در بروزرسانی: ${err.message}`, 'error');
+                } finally {
+                    setEditingTxId(null);
+                }
             };
 
             return (
@@ -2442,7 +2576,7 @@
                                     <div className="overflow-x-auto border rounded-lg dark:border-gray-700">
                                         <table className="w-full text-right text-sm">
                                             <thead className="bg-gray-100 dark:bg-gray-700">
-                                                <tr><th className="p-3">#شناسه</th><th className="p-3">کاربر</th><th className="p-3">نوع</th><th className="p-3">مبلغ</th><th className="p-3">فاکتور</th><th className="p-3">تاریخ</th><th className="p-3">توضیحات</th></tr>
+                                                <tr><th className="p-3">#شناسه</th><th className="p-3">کاربر</th><th className="p-3">نوع</th><th className="p-3">مبلغ</th><th className="p-3">فاکتور</th><th className="p-3">تاریخ ایجاد</th><th className="p-3">تاریخ واریز</th><th className="p-3">توضیحات / شماره پیگیری</th></tr>
                                             </thead>
                                             <tbody className="divide-y dark:divide-gray-700">
                                                 {transactions.length > 0 ? transactions.map(tx => (
@@ -2452,10 +2586,34 @@
                                                         <td className="p-3 text-gray-500">{tx.transactiontypeid === 1 ? 'دریافت از مشتری' : tx.transactiontypeid === 2 ? 'پرداخت به تامین‌کننده' : 'سایر'}</td>
                                                         <td className={`p-3 font-bold ${tx.amount > 0 ? 'text-green-500' : 'text-red-500'}`} dir="ltr">{formatCurrency(tx.amount)}</td>
                                                         <td className="p-3 font-mono">{tx.invoice?.id ? `#${tx.invoice.id}` : '-'}</td>
-                                                        <td className="p-3 text-gray-500">{new Date(tx.createdat).toLocaleDateString('fa-IR')}</td>
-                                                        <td className="p-3 text-gray-500 text-xs max-w-[200px] truncate" title={tx.description || ''}>{tx.description || '-'}</td>
+                                                        <td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr" style={{textAlign: 'right'}}>{new Date(tx.createdat).toLocaleDateString('fa-IR')}</td>
+                                                        <td className="p-3 text-indigo-500 font-semibold whitespace-nowrap" dir="ltr" style={{textAlign: 'right'}}>
+                                                            {tx.customer_payment_date ? new Date(tx.customer_payment_date).toLocaleDateString('fa-IR') : '-'}
+                                                        </td>
+                                                        <td className="p-3 text-gray-500 text-xs">
+                                                            {editingTxId === tx.id ? (
+                                                                <div className="flex items-center gap-1">
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={editingTxDesc} 
+                                                                        onChange={(e) => setEditingTxDesc(e.target.value)}
+                                                                        className="flex-1 p-1 border rounded dark:bg-gray-800 dark:border-gray-600 outline-none min-w-[120px]"
+                                                                        autoFocus
+                                                                    />
+                                                                    <button onClick={() => handleSaveTxDesc(tx.id)} className="text-green-500 hover:text-green-700 bg-green-50 dark:bg-green-900/30 p-1 rounded">✓</button>
+                                                                    <button onClick={() => setEditingTxId(null)} className="text-red-500 hover:text-red-700 bg-red-50 dark:bg-red-900/30 p-1 rounded">✕</button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center justify-start gap-2 group">
+                                                                    <span className="max-w-[200px] truncate" title={tx.description || ''}>{tx.description || '-'}</span>
+                                                                    <button onClick={() => { setEditingTxId(tx.id); setEditingTxDesc(tx.description || ''); }} className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-700 transition-opacity" title="ویرایش توضیحات">
+                                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </td>
                                                     </tr>
-                                                )) : <tr><td colSpan="7" className="p-6 text-center text-gray-500">موردی یافت نشد.</td></tr>}
+                                                )) : <tr><td colSpan="8" className="p-6 text-center text-gray-500">موردی یافت نشد.</td></tr>}
                                             </tbody>
                                         </table>
                                     </div>
