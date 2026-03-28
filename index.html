@@ -752,13 +752,32 @@
                 const fetchUsers = async () => {
                     const { data, error } = await supabaseClient
                         .from('profiles')
-                        .select('id, fullname, roleid')
+                        .select('*')
                         .in('roleid', [1, 3]); 
                     if (error) {
                         console.error("Error fetching users:", error);
                         addToast('خطا در بارگذاری لیست کاربران', 'error');
                     } else {
-                        setUsers(data || []);
+                        const formattedUsers = (data || []).map(u => {
+                            const fName = (u.first_name || u.firstname || '').trim();
+                            const lName = (u.last_name || u.lastname || '').trim();
+                            const fullName = (u.fullname || '').trim();
+                            
+                            let nameParts = [];
+                            if (fName) nameParts.push(fName);
+                            if (lName) nameParts.push(lName);
+                            if (fullName && !nameParts.join(' ').includes(fullName)) {
+                                nameParts.push(fullName);
+                            }
+                            
+                            const finalName = nameParts.length > 0 ? nameParts.join(' - ') : 'نامشخص';
+                            
+                            return {
+                                ...u,
+                                displayName: `${finalName} ${u.mobile ? `(${u.mobile})` : ''}`.trim()
+                            };
+                        });
+                        setUsers(formattedUsers);
                     }
                 };
                 fetchUsers();
@@ -886,7 +905,7 @@
 
             const filteredUsers = React.useMemo(() => 
                 users.filter(user => 
-                    user.fullname.toLowerCase().includes(searchTerm.toLowerCase())
+                    (user.displayName || '').toLowerCase().includes(searchTerm.toLowerCase())
                 ), 
                 [users, searchTerm]
             );
@@ -992,7 +1011,7 @@
                                                                 disabled={selectedUserIds.has(user.id) && alloc.userId !== user.id}
                                                                 className="disabled:bg-gray-200 dark:disabled:bg-gray-600"
                                                             >
-                                                                {user.fullname} ({user.roleid === 1 ? 'ادمین' : 'تامین کننده'})
+                                                                {user.displayName} ({user.roleid === 1 ? 'ادمین' : 'تامین کننده'})
                                                             </option>
                                                         ))}
                                                     </select>
@@ -1041,7 +1060,7 @@
                                                     >
                                                         <option value="">انتخاب...</option>
                                                         {users.filter(u => u.roleid === 3 || u.roleid === 1).map(u => (
-                                                            <option key={u.id} value={u.id}>{u.fullname}</option>
+                                                            <option key={u.id} value={u.id}>{u.displayName}</option>
                                                         ))}
                                                     </select>
                                                 </div>
