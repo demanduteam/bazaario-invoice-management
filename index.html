@@ -515,9 +515,29 @@
         // ConfirmDeleteModal Component
         // ==================================================
         const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, invoice }) => {
+            const [isDeleting, setIsDeleting] = React.useState(false);
+            const submitRef = React.useRef(false);
+
             if (!isOpen || !invoice) return null;
+
+            const safeOnClose = () => {
+                if (!isDeleting && !submitRef.current) onClose();
+            };
+
+            const handleConfirm = async () => {
+                if (isDeleting || submitRef.current) return;
+                setIsDeleting(true);
+                submitRef.current = true;
+                try {
+                    await onConfirm();
+                } finally {
+                    setIsDeleting(false);
+                    submitRef.current = false;
+                }
+            };
+
             return (
-                <Modal isOpen={isOpen} onClose={onClose} title="تایید حذف فاکتور" maxWidth="max-w-lg">
+                <Modal isOpen={isOpen} onClose={safeOnClose} title="تایید حذف فاکتور" maxWidth="max-w-lg">
                     <div className="text-right">
                         <p className="mb-4 text-lg text-red-600 dark:text-red-400">
                             آیا مطمئن هستید که می‌خواهید فاکتور شماره <span className="font-mono font-bold">{invoice.id}</span> مربوط به مشتری <span className="font-bold">{invoice.customer?.fullname || 'نامشخص'}</span> را حذف کنید؟
@@ -527,8 +547,11 @@
                         </p>
                     </div>
                     <div className="flex justify-end gap-4 mt-6">
-                        <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg font-semibold">انصراف</button>
-                        <button onClick={onConfirm} className="bg-red-600 text-white py-2 px-5 rounded-lg font-semibold hover:bg-red-700">حذف فاکتور</button>
+                        <button onClick={safeOnClose} disabled={isDeleting} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg font-semibold disabled:opacity-50">انصراف</button>
+                        <button onClick={handleConfirm} disabled={isDeleting} className="bg-red-600 text-white py-2 px-5 rounded-lg font-semibold hover:bg-red-700 flex items-center gap-2 disabled:opacity-50">
+                            {isDeleting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
+                            {isDeleting ? 'در حال حذف...' : 'حذف فاکتور'}
+                        </button>
                     </div>
                 </Modal>
             );
@@ -712,7 +735,10 @@
             const [allocations, setAllocations] = React.useState([]);
             const [purchaseDetails, setPurchaseDetails] = React.useState([]);
             const [users, setUsers] = React.useState([]);
+            
             const [isSubmitting, setIsSubmitting] = React.useState(false);
+            const submitRef = React.useRef(false); // Guard for double-clicks
+            
             const { addToast } = useToasts();
             const [searchTerm, setSearchTerm] = React.useState(''); 
             const [activeCustomerCalendarIndex, setActiveCustomerCalendarIndex] = React.useState(null);
@@ -847,7 +873,14 @@
                 setAllocations(newAllocations);
             };
             
+            const safeOnClose = () => {
+                if (!isSubmitting && !submitRef.current) onClose();
+                else addToast('لطفاً تا پایان عملیات ثبت سیستم صبر کنید.', 'warning');
+            };
+
             const handleSave = async () => {
+                if (isSubmitting || submitRef.current) return;
+                
                 const parsedTotalReceived = totalAmountReceived;
                 if (totalAllocated > parsedTotalReceived) {
                     addToast('مبلغ تخصیص‌داده شده بیشتر از مجموع مبالغ دریافتی است!', 'warning');
@@ -889,6 +922,7 @@
                 }
 
                 setIsSubmitting(true);
+                submitRef.current = true;
                 try {
                     await onSave({
                         validCustomerPayments,
@@ -900,6 +934,7 @@
                     // Handled in parent
                 } finally {
                     setIsSubmitting(false);
+                    submitRef.current = false;
                 }
             };
 
@@ -913,7 +948,7 @@
             if (!preInvoiceData) return null;
 
             return (
-                <Modal isOpen={isOpen} onClose={onClose} title="ثبت فاکتور، تخصیص مالی و ایجاد سفارش خرید" maxWidth="max-w-6xl">
+                <Modal isOpen={isOpen} onClose={safeOnClose} title="ثبت فاکتور، تخصیص مالی و ایجاد سفارش خرید" maxWidth="max-w-6xl">
                     <div className="space-y-4">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {/* Right Column: Invoice and Allocations */}
@@ -1100,7 +1135,7 @@
                         </div>
 
                         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                            <button onClick={onClose} className="px-5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">انصراف</button>
+                            <button onClick={safeOnClose} disabled={isSubmitting} className="px-5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">انصراف</button>
                             <button onClick={handleSave} disabled={isSubmitting} className="px-5 py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white shadow-md disabled:bg-green-400 flex items-center gap-2 transition-all">
                                 {isSubmitting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
                                 {isSubmitting ? 'در حال ثبت سیستم...' : 'ثبت فاکتور و صدور سفارش خرید'}
@@ -1116,7 +1151,13 @@
         // ==================================================
         const EditInvoiceModal = ({ isOpen, onClose, onSave, invoice: initialInvoice, addToast }) => {
             const [invoice, setInvoice] = React.useState(initialInvoice);
+            
             const [isSubmitting, setIsSubmitting] = React.useState(false);
+            const submitRef = React.useRef(false);
+
+            const safeOnClose = () => {
+                if (!isSubmitting && !submitRef.current) onClose();
+            };
 
             React.useEffect(() => {
                 if (initialInvoice) {
@@ -1186,7 +1227,9 @@
             };
 
             const handleSave = async () => {
+                if (isSubmitting || submitRef.current) return;
                 setIsSubmitting(true);
+                submitRef.current = true;
                 try {
                     const detailUpdates = invoice.demandinvoicedetail.map(detail => 
                         supabaseClient
@@ -1217,11 +1260,12 @@
                     addToast(`خطا در به‌روزرسانی فاکتور: ${err.message}`, 'error');
                 } finally {
                     setIsSubmitting(false);
+                    submitRef.current = false;
                 }
             };
 
             return (
-                <Modal isOpen={isOpen} onClose={onClose} title={`ویرایش فاکتور شماره ${invoice.id}`} maxWidth="max-w-4xl">
+                <Modal isOpen={isOpen} onClose={safeOnClose} title={`ویرایش فاکتور شماره ${invoice.id}`} maxWidth="max-w-4xl">
                     <div className="space-y-4">
                         <div className="overflow-x-auto border rounded-lg dark:border-gray-700">
                            <table className="w-full text-right min-w-[500px] text-sm">
@@ -1270,8 +1314,9 @@
                                 مبلغ کل جدید: <span dir="ltr" className="font-mono">{formatCurrency(invoice.totalamount)}</span> تومان
                             </div>
                             <div className="flex gap-3">
-                                <button onClick={onClose} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg text-sm font-semibold">انصراف</button>
-                                <button onClick={handleSave} disabled={isSubmitting} className="bg-indigo-600 text-white py-2 px-5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+                                <button onClick={safeOnClose} disabled={isSubmitting} className="bg-gray-200 dark:bg-gray-600 py-2 px-5 rounded-lg text-sm font-semibold disabled:opacity-50">انصراف</button>
+                                <button onClick={handleSave} disabled={isSubmitting} className="bg-indigo-600 text-white py-2 px-5 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+                                    {isSubmitting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
                                     {isSubmitting ? 'در حال ذخیره...' : 'ذخیره تغییرات'}
                                 </button>
                             </div>
@@ -1630,11 +1675,20 @@
             const [date, setDate] = React.useState(getInitialDate());
             const [description, setDescription] = React.useState('');
             const [isCalendarOpen, setIsCalendarOpen] = React.useState(false);
+            
             const [isSaving, setIsSaving] = React.useState(false);
+            const submitRef = React.useRef(false);
+
             const { addToast } = useToasts();
+
+            const safeOnClose = () => {
+                if (!isSaving && !submitRef.current) onClose();
+            };
 
             const handleSave = async (e) => {
                 e.preventDefault();
+                if (isSaving || submitRef.current) return;
+
                 const rawAmount = parseFormattedNumber(amount);
                 if (rawAmount <= 0) return addToast('مبلغ باید بزرگتر از صفر باشد', 'error');
                 
@@ -1653,20 +1707,25 @@
                 const gregorianDate = `${g.gy}-${String(g.gm).padStart(2, '0')}-${String(g.gd).padStart(2, '0')}`;
 
                 setIsSaving(true);
+                submitRef.current = true;
                 const finalAmount = transactionType === '1' ? rawAmount : -rawAmount;
                 
-                await onSave({
-                    userid: supplier.id,
-                    amount: finalAmount,
-                    createdat: gregorianDate,
-                    transactiontypeid: parseInt(transactionType),
-                    description: description || ''
-                });
-                setIsSaving(false);
+                try {
+                    await onSave({
+                        userid: supplier.id,
+                        amount: finalAmount,
+                        createdat: gregorianDate,
+                        transactiontypeid: parseInt(transactionType),
+                        description: description || ''
+                    });
+                } finally {
+                    setIsSaving(false);
+                    submitRef.current = false;
+                }
             };
 
             return (
-                <Modal isOpen={!!supplier} onClose={onClose} title={`ثبت تراکنش دستی برای: ${supplier.fullname}`} maxWidth="max-w-xl">
+                <Modal isOpen={!!supplier} onClose={safeOnClose} title={`ثبت تراکنش دستی برای: ${supplier.fullname}`} maxWidth="max-w-xl">
                      <form onSubmit={handleSave} className="space-y-5">
                         
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -1734,8 +1793,8 @@
                         </div>
                         
                         <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700 mt-2">
-                            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">انصراف</button>
-                            <button type="submit" disabled={isSaving} className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-2 transition-all">
+                            <button type="button" onClick={safeOnClose} disabled={isSaving} className="px-5 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">انصراف</button>
+                            <button type="submit" disabled={isSaving} className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-md flex items-center gap-2 transition-all disabled:opacity-50">
                                 {isSaving && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>}
                                 {isSaving ? 'در حال ثبت...' : 'ثبت نهایی تراکنش'}
                             </button>
@@ -2194,9 +2253,12 @@
             const handleInitiatePayment = (customerId) => { setAllocationModalState({ isOpen: true, preInvoiceData: preInvoices[customerId] }); };
 
             const handleSaveAllocationAndCreateInvoice = async ({ validCustomerPayments, allocations, preInvoiceData, purchaseDetails }) => {
+                if (isSubmitting) return; // Prevent double execution
                 const { customerId, items, discount, demandid } = preInvoiceData;
                 const totalShipping = items.reduce((sum, item) => sum + (item.shipping_price || 0), 0);
+                
                 setIsSubmitting(customerId);
+                
                 try {
                     // 1. Create Invoice
                     const totalQuantity = items.reduce((sum, item) => sum + (item.approved_supply_quantity || 0), 0);
@@ -2384,7 +2446,9 @@
                     if (activeTab === 'history') await fetchHistoricalData(); 
                 } catch (err) {
                     addToast(`خطا در عملیات ثبت: ${err.message}`, 'error');
-                } finally { setIsSubmitting(null); }
+                } finally { 
+                    setIsSubmitting(null); 
+                }
             };
             
             const handleOpenEditModal = (invoice) => {
@@ -2420,7 +2484,8 @@
             const handleDeleteInvoice = async () => {
                 const invoice = deleteModalState.invoiceToDelete;
                 if (!invoice) return;
-                handleCloseDeleteModal(); setIsLoading(true); addToast('در حال حذف فاکتور و تراکنش‌های مرتبط...', 'warning');
+                
+                setIsLoading(true); 
                 try {
                     await supabaseClient.from('usertransaction').delete().eq('demandinvoiceid', invoice.id);
                     const { error: detailError } = await supabaseClient.from('demandinvoicedetail').delete().eq('demandinvoiceid', invoice.id);
@@ -2429,7 +2494,12 @@
                     if (headerError) throw headerError;
                     addToast(`فاکتور شماره ${invoice.id} با موفقیت حذف شد.`, 'success');
                     await refreshData();
-                } catch (err) { addToast(`خطا در حذف فاکتور: ${err.message}`, 'error'); } finally { setIsLoading(false); }
+                    handleCloseDeleteModal();
+                } catch (err) { 
+                    addToast(`خطا در حذف فاکتور: ${err.message}`, 'error'); 
+                } finally { 
+                    setIsLoading(false); 
+                }
             };
 
             const handleSaveTxDesc = async (txId) => {
@@ -2447,7 +2517,21 @@
             };
 
             return (
-                <div className="bg-white dark:bg-gray-800 shadow-sm rounded-xl p-4 md:p-6 lg:p-8 font-vazir transition-colors duration-300">
+                <div className="bg-white dark:bg-gray-800 shadow-sm rounded-xl p-4 md:p-6 lg:p-8 font-vazir transition-colors duration-300 relative">
+                    {/* Global Overlay for critical long-running tasks */}
+                    {isSubmitting && (
+                        <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity">
+                            <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm text-center border dark:border-gray-700 animate-[scaleIn_0.2s_ease-out]">
+                                <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-6"></div>
+                                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">در حال ارتباط با سرور</h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">لطفاً شکیبا باشید. این عملیات ممکن است چند لحظه طول بکشد.</p>
+                                <div className="w-full bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded border border-yellow-200 dark:border-yellow-700 text-right">
+                                    <p className="text-xs text-yellow-700 dark:text-yellow-400 font-bold leading-relaxed">⚠️ لطفاً از بستن یا رفرش کردن صفحه خودداری کنید تا از ثبت ناقص اطلاعات و ایجاد فاکتورهای تکراری جلوگیری شود.</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-l from-indigo-500 to-purple-600">داشبورد مدیریت فاکتورها و خرید</h2>
                         <div className="flex gap-2">
@@ -2529,7 +2613,7 @@
                                             </div>
                                             <div className="mt-4 flex flex-col sm:flex-row justify-end gap-3">
                                                 <button onClick={() => handleOpenPrintPreInvoiceModal(invoiceData)} className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-semibold">چاپ پیش‌فاکتور</button>
-                                                <button onClick={() => handleInitiatePayment(customerId)} disabled={isSubmitting === customerId} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold">تایید و پرداخت فاکتور (صدور PO)</button>
+                                                <button onClick={() => handleInitiatePayment(customerId)} disabled={isSubmitting === customerId} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-semibold disabled:opacity-50">تایید و پرداخت فاکتور (صدور PO)</button>
                                             </div>
                                         </div>
                                     )) : <p className="text-center p-12 text-gray-500">موردی برای نمایش وجود ندارد.</p>}
